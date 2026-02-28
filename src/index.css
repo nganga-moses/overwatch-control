@@ -1,0 +1,78 @@
+@import "tailwindcss";
+
+@theme {
+  /* Overwatch — dark security-oriented palette */
+  --color-ow-bg: #0d1117;
+  --color-ow-surface: #161b22;
+  --color-ow-surface-2: #1c2128;
+  --color-ow-surface-3: #272d36;
+  --color-ow-border: #30363d;
+  --color-ow-border-light: #3d444d;
+  --color-ow-text: #e6edf3;
+  --color-ow-text-muted: #8b949e;
+  --color-ow-text-dim: #6e7681;
+
+  /* Accent: teal for overwatch primary actions */
+  --color-ow-accent: #2dd4bf;
+  --color-ow-accent-dim: #1a9b87;
+  --color-ow-accent-bg: #0d3d38;
+
+  /* Status colors */
+  --color-ow-safe: #3fb950;
+  --color-ow-warning: #d29922;
+  --color-ow-danger: #f85149;
+  --color-ow-info: #58a6ff;
+
+  /* Tier colors */
+  --color-ow-tier1: #a78bfa;
+  --color-ow-tier2: #f97316;
+
+  /* Perch states */
+  --color-ow-perched: #3fb950;
+  --color-ow-transit: #58a6ff;
+  --color-ow-sleeping: #6e7681;
+  --color-ow-launching: #d29922;
+  --color-ow-repositioning: #bc8cff;
+  --color-ow-returning: #79c0ff;
+
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  background: var(--color-ow-bg);
+  color: var(--color-ow-text);
+  font-family: var(--font-sans);
+}
+
+/* macOS traffic-light drag region */
+.titlebar-drag {
+  -webkit-app-region: drag;
+}
+
+.titlebar-no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-ow-border);
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-ow-border-light);
+}

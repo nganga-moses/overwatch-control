@@ -1,0 +1,9 @@
+node_modules/
+dist/
+out/
+.vite/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+.env
+.DS_Store
