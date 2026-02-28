@@ -24,7 +24,7 @@ function createWindow(): BrowserWindow {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 12 },
     backgroundColor: '#0d1117',
-    icon: path.join(__dirname, '..', '..', '..', 'assets', 'overwatch.png'),
+    icon: path.join(__dirname, '..', '..', 'assets', 'overwatch.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
