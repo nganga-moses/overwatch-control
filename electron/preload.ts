@@ -46,8 +46,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('venue:getPerchPoints', zoneId),
     deletePerchPoint: (id: string) =>
       ipcRenderer.invoke('venue:deletePerchPoint', id),
-    uploadFloorPlan: (venueId: string, filePath: string) =>
-      ipcRenderer.invoke('venue:uploadFloorPlan', venueId, filePath),
+    uploadFloorPlan: (venueId: string, filePath: string, options?: { floorLevel?: number; pageNumber?: number }) =>
+      ipcRenderer.invoke('venue:uploadFloorPlan', venueId, filePath, options),
+    getPageCount: (venueId: string, blobKey: string) =>
+      ipcRenderer.invoke('venue:getPageCount', venueId, blobKey),
     pollIngestion: (venueId: string, jobId: string) =>
       ipcRenderer.invoke('venue:pollIngestion', venueId, jobId),
     pullFloorPlan: (venueId: string) =>

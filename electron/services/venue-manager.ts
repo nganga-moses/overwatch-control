@@ -152,7 +152,15 @@ export class VenueManager {
   async uploadFloorPlan(
     venueId: string,
     localFilePath: string,
-  ): Promise<{ jobId: string; status: string; zoneCount?: number; perchPointCount?: number }> {
+    options?: { floorLevel?: number; pageNumber?: number },
+  ): Promise<{
+    jobId: string;
+    status: string;
+    zoneCount?: number;
+    perchPointCount?: number;
+    pagesProcessed?: number;
+    blobKey: string;
+  }> {
     if (!fs.existsSync(localFilePath)) {
       throw new Error(`File not found: ${localFilePath}`);
     }
@@ -176,9 +184,19 @@ export class VenueManager {
     if (!uploadResp.ok) throw new Error(`Failed to upload file: ${uploadResp.status}`);
 
     const fmt = ['dxf', 'dwg'].includes(ext) ? 'dxf' : ext === 'pdf' ? 'pdf' : 'image';
+
+    const ingestBody: Record<string, unknown> = {
+      blob_key: key,
+      format: fmt,
+      floor_level: options?.floorLevel ?? 0,
+    };
+    if (options?.pageNumber != null) {
+      ingestBody.page_number = options.pageNumber;
+    }
+
     const ingestResp = await this.api.apiFetchPublic(`/api/v1/venues/${venueId}/ingest`, {
       method: 'POST',
-      body: JSON.stringify({ blob_key: key, format: fmt, floor_level: 0 }),
+      body: JSON.stringify(ingestBody),
     });
     if (!ingestResp.ok) throw new Error(`Failed to start ingestion: ${ingestResp.status}`);
 
@@ -195,7 +213,22 @@ export class VenueManager {
       status: result.status,
       zoneCount: result.zone_count,
       perchPointCount: result.perch_point_count,
+      pagesProcessed: result.pages_processed,
+      blobKey: key,
     };
+  }
+
+  async getPageCount(
+    venueId: string,
+    blobKey: string,
+  ): Promise<number> {
+    const resp = await this.api.apiFetchPublic(`/api/v1/venues/${venueId}/page-count`, {
+      method: 'POST',
+      body: JSON.stringify({ blob_key: blobKey, format: 'pdf', floor_level: 0 }),
+    });
+    if (!resp.ok) return 1;
+    const data = await resp.json();
+    return data.page_count ?? 1;
   }
 
   async pollIngestion(

@@ -33,8 +33,11 @@ export function registerVenueHandlers(vm: VenueManager): void {
   );
 
   // Floor plan (cloud)
-  ipcMain.handle('venue:uploadFloorPlan', (_e, venueId: string, filePath: string) =>
-    vm.uploadFloorPlan(venueId, filePath),
+  ipcMain.handle('venue:uploadFloorPlan', (_e, venueId: string, filePath: string, options?: { floorLevel?: number; pageNumber?: number }) =>
+    vm.uploadFloorPlan(venueId, filePath, options),
+  );
+  ipcMain.handle('venue:getPageCount', (_e, venueId: string, blobKey: string) =>
+    vm.getPageCount(venueId, blobKey),
   );
   ipcMain.handle('venue:pollIngestion', (_e, venueId: string, jobId: string) =>
     vm.pollIngestion(venueId, jobId),
