@@ -347,6 +347,10 @@ export class SyncManager extends EventEmitter {
   // API helper
   // ---------------------------------------------------------------------------
 
+  async apiFetchPublic(endpoint: string, init?: RequestInit): Promise<Response> {
+    return this.apiFetch(endpoint, init);
+  }
+
   private async apiFetch(endpoint: string, init?: RequestInit): Promise<Response> {
     const url = `${this.config.cloudApiUrl}${endpoint}`;
     return fetch(url, {

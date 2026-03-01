@@ -151,6 +151,122 @@ export class OverwatchDB {
     this.db.prepare('DELETE FROM venues WHERE id = ?').run(id);
   }
 
+  updateVenueFloorPlan(
+    venueId: string,
+    patch: {
+      floorPlanBlobKey?: string | null;
+      floorPlanLocalPath?: string | null;
+      floorPlanCached?: number;
+      floorPlanCachedAt?: string | null;
+    },
+  ): void {
+    const sets: string[] = [];
+    const params: any[] = [];
+
+    if (patch.floorPlanBlobKey !== undefined) {
+      sets.push('floor_plan_blob_key = ?');
+      params.push(patch.floorPlanBlobKey);
+    }
+    if (patch.floorPlanLocalPath !== undefined) {
+      sets.push('floor_plan_local_path = ?');
+      params.push(patch.floorPlanLocalPath);
+    }
+    if (patch.floorPlanCached !== undefined) {
+      sets.push('floor_plan_cached = ?');
+      params.push(patch.floorPlanCached);
+    }
+    if (patch.floorPlanCachedAt !== undefined) {
+      sets.push('floor_plan_cached_at = ?');
+      params.push(patch.floorPlanCachedAt);
+    }
+
+    if (sets.length === 0) return;
+    sets.push("updated_at = datetime('now')");
+    params.push(venueId);
+
+    this.db.prepare(`UPDATE venues SET ${sets.join(', ')} WHERE id = ?`).run(...params);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Surface Assessments
+  // ---------------------------------------------------------------------------
+
+  writeSurfaceAssessment(data: Record<string, unknown>): string {
+    const id = (data.id as string) ?? generateId();
+    this.db
+      .prepare(
+        `INSERT INTO surface_assessments (
+          id, perch_point_id, operation_id, drone_id, drone_tier,
+          surface_class_predicted, surface_class_actual, surface_orientation,
+          tof_roughness, weather_conditions, spine_engaged, suction_engaged,
+          landing_gear_used, hold_duration_s, failure_mode, approach_image_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        id,
+        data.perchPointId ?? data.perch_point_id ?? null,
+        data.operationId ?? data.operation_id ?? null,
+        data.droneId ?? data.drone_id ?? null,
+        data.droneTier ?? data.drone_tier ?? null,
+        data.surfaceClassPredicted ?? data.surface_class_predicted ?? null,
+        data.surfaceClassActual ?? data.surface_class_actual ?? null,
+        data.surfaceOrientation ?? data.surface_orientation ?? null,
+        data.tofRoughness ?? data.tof_roughness ?? null,
+        data.weatherConditions ?? data.weather_conditions ?? null,
+        data.spineEngaged ?? data.spine_engaged ?? null,
+        data.suctionEngaged ?? data.suction_engaged ?? null,
+        data.landingGearUsed ?? data.landing_gear_used ?? null,
+        data.holdDurationS ?? data.hold_duration_s ?? null,
+        data.failureMode ?? data.failure_mode ?? null,
+        data.approachImagePath ?? data.approach_image_path ?? null,
+      );
+    return id;
+  }
+
+  getSurfaceAssessments(perchPointId: string): any[] {
+    return this.db
+      .prepare('SELECT * FROM surface_assessments WHERE perch_point_id = ? ORDER BY assessed_at DESC')
+      .all(perchPointId);
+  }
+
+  getPerchPointStats(perchPointId: string): {
+    totalAttempts: number;
+    successCount: number;
+    successRate: number;
+    avgHoldDurationS: number | null;
+    failureModes: Record<string, number>;
+  } {
+    const rows = this.getSurfaceAssessments(perchPointId);
+    const total = rows.length;
+    const successes = rows.filter(
+      (r: any) => r.failure_mode === null || r.failure_mode === 'none',
+    ).length;
+
+    const holdDurations = rows
+      .map((r: any) => r.hold_duration_s)
+      .filter((v: any) => v != null) as number[];
+
+    const avgHold = holdDurations.length > 0
+      ? holdDurations.reduce((a: number, b: number) => a + b, 0) / holdDurations.length
+      : null;
+
+    const modes: Record<string, number> = {};
+    for (const r of rows) {
+      const mode = (r as any).failure_mode;
+      if (mode && mode !== 'none') {
+        modes[mode] = (modes[mode] ?? 0) + 1;
+      }
+    }
+
+    return {
+      totalAttempts: total,
+      successCount: successes,
+      successRate: total > 0 ? successes / total : 0,
+      avgHoldDurationS: avgHold,
+      failureModes: modes,
+    };
+  }
+
   // ---------------------------------------------------------------------------
   // Venue Zones
   // ---------------------------------------------------------------------------

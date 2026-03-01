@@ -304,4 +304,44 @@ export const migrations: Migration[] = [
       ALTER TABLE surface_assessments ADD COLUMN synced_at TEXT;
     `,
   },
+  {
+    version: 3,
+    description: 'Floor plan cache tracking + surface assessment upgrade',
+    sql: `
+      ALTER TABLE venues ADD COLUMN floor_plan_blob_key TEXT;
+      ALTER TABLE venues ADD COLUMN floor_plan_local_path TEXT;
+      ALTER TABLE venues ADD COLUMN floor_plan_cached INTEGER NOT NULL DEFAULT 0;
+      ALTER TABLE venues ADD COLUMN floor_plan_cached_at TEXT;
+
+      CREATE TABLE IF NOT EXISTS surface_assessments_v2 (
+        id TEXT PRIMARY KEY,
+        perch_point_id TEXT NOT NULL REFERENCES perch_points(id) ON DELETE CASCADE,
+        operation_id TEXT REFERENCES operations(id),
+        drone_id TEXT NOT NULL,
+        drone_tier TEXT,
+        surface_class_predicted TEXT,
+        surface_class_actual TEXT,
+        surface_orientation TEXT,
+        tof_roughness REAL,
+        weather_conditions TEXT,
+        spine_engaged INTEGER,
+        suction_engaged INTEGER,
+        landing_gear_used INTEGER,
+        hold_duration_s REAL,
+        failure_mode TEXT,
+        approach_image_path TEXT,
+        assessed_at TEXT NOT NULL DEFAULT (datetime('now')),
+        synced_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_sa_v2_perch ON surface_assessments_v2(perch_point_id);
+      CREATE INDEX IF NOT EXISTS idx_sa_v2_operation ON surface_assessments_v2(operation_id);
+
+      INSERT INTO surface_assessments_v2 (id, perch_point_id, drone_id, hold_duration_s, assessed_at, synced_at)
+      SELECT id, perch_point_id, drone_id, CAST(duration_ms AS REAL) / 1000.0, attempted_at, synced_at
+      FROM surface_assessments;
+
+      DROP TABLE IF EXISTS surface_assessments;
+      ALTER TABLE surface_assessments_v2 RENAME TO surface_assessments;
+    `,
+  },
 ];

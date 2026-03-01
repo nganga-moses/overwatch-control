@@ -94,6 +94,7 @@ app.whenReady().then(async () => {
   syncManager = initSyncManager(db);
 
   if (syncManager) {
+    venueManager.setSyncManager(syncManager);
     assetManager.setSyncManager(syncManager);
   }
 

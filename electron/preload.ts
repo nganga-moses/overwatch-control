@@ -46,8 +46,26 @@ contextBridge.exposeInMainWorld('electronAPI', {
       ipcRenderer.invoke('venue:getPerchPoints', zoneId),
     deletePerchPoint: (id: string) =>
       ipcRenderer.invoke('venue:deletePerchPoint', id),
-    setFloorPlan: (venueId: string, filePath: string) =>
-      ipcRenderer.invoke('venue:setFloorPlan', venueId, filePath),
+    uploadFloorPlan: (venueId: string, filePath: string) =>
+      ipcRenderer.invoke('venue:uploadFloorPlan', venueId, filePath),
+    pollIngestion: (venueId: string, jobId: string) =>
+      ipcRenderer.invoke('venue:pollIngestion', venueId, jobId),
+    pullFloorPlan: (venueId: string) =>
+      ipcRenderer.invoke('venue:pullFloorPlan', venueId),
+    evictFloorPlan: (venueId: string) =>
+      ipcRenderer.invoke('venue:evictFloorPlan', venueId),
+    isFloorPlanCached: (venueId: string) =>
+      ipcRenderer.invoke('venue:isFloorPlanCached', venueId),
+    getFloorPlanPath: (venueId: string) =>
+      ipcRenderer.invoke('venue:getFloorPlanPath', venueId),
+    fetchIntelligence: (venueId: string) =>
+      ipcRenderer.invoke('venue:fetchIntelligence', venueId),
+    recordSurfaceAssessment: (data: unknown) =>
+      ipcRenderer.invoke('venue:recordSurfaceAssessment', data),
+    getPerchPointHistory: (perchPointId: string) =>
+      ipcRenderer.invoke('venue:getPerchPointHistory', perchPointId),
+    getPerchPointStats: (perchPointId: string) =>
+      ipcRenderer.invoke('venue:getPerchPointStats', perchPointId),
   },
 
   assets: {
