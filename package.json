@@ -9,7 +9,8 @@
     "start": "electron-forge start",
     "dev": "electron-forge start",
     "package": "electron-forge package",
-    "make": "electron-forge make"
+    "make": "electron-forge make",
+    "postinstall": "/usr/libexec/PlistBuddy -c 'Set :CFBundleName Overwatch Control' node_modules/electron/dist/Electron.app/Contents/Info.plist && /usr/libexec/PlistBuddy -c 'Set :CFBundleDisplayName Overwatch Control' node_modules/electron/dist/Electron.app/Contents/Info.plist || true"
   },
   "dependencies": {
     "@nganga-moses/mc-ui": "file:../../mission-control-prototype/packages/ui",
