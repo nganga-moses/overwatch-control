@@ -79,59 +79,27 @@ export class AssetManager {
     this.db.deleteDroneProfile(id);
   }
 
-  /**
-   * Onboard a kit by serial: tries to fetch manifest from Overwatch Cloud,
-   * falling back to mock generation if cloud is unavailable.
-   */
   async onboard(serial: string): Promise<{
     kitId: string;
     drones: { id: string; callsign: string; tier: string }[];
-    source: 'cloud' | 'mock';
   }> {
-    if (this.syncManager) {
-      try {
-        const cloudKit = await this.syncManager.fetchKit(serial);
-        if (cloudKit) {
-          return this.applyCloudKit(cloudKit);
-        }
-      } catch (err) {
-        console.warn('[AssetManager] Cloud kit fetch failed, falling back to mock:', err);
-      }
+    if (!this.syncManager) {
+      throw new Error('Cloud sync is not configured. Set OW_CLOUD_API_URL, OW_API_KEY, and OW_WORKSTATION_ID.');
     }
 
-    return { ...this.mockOnboard(serial), source: 'mock' };
-  }
-
-  private applyCloudKit(cloudKit: any): {
-    kitId: string;
-    drones: { id: string; callsign: string; tier: string }[];
-    source: 'cloud';
-  } {
-    const comp = KIT_COMPOSITIONS[cloudKit.config] ?? { tier_1: 0, tier_2: 0 };
-
-    const kitId = this.createKit({
-      name: cloudKit.name ?? `Kit ${cloudKit.serial.slice(-4).toUpperCase()}`,
-      type: cloudKit.config,
-      serial: cloudKit.serial,
-      customerId: cloudKit.customer_id ?? null,
-    });
-
-    const drones: { id: string; callsign: string; tier: string }[] = [];
-
-    for (const d of cloudKit.drones ?? []) {
-      const id = this.createDrone({
-        kitId,
-        callsign: d.callsign ?? d.serial,
-        serial: d.serial,
-        tier: d.tier,
-      });
-      drones.push({ id, callsign: d.callsign ?? d.serial, tier: d.tier });
+    const cloudKit = await this.syncManager.fetchKit(serial);
+    if (!cloudKit) {
+      throw new Error(`Kit "${serial}" not found in cloud registry.`);
     }
 
-    return { kitId, drones, source: 'cloud' };
+    return this.applyCloudKit(cloudKit);
   }
 
-  private mockOnboard(serial: string): {
+  /**
+   * Simulation-only onboarding: generates a fake kit manifest.
+   * Only called by the simulation engine — never by real onboarding.
+   */
+  simulateOnboard(serial: string): {
     kitId: string;
     drones: { id: string; callsign: string; tier: string }[];
   } {
@@ -167,6 +135,32 @@ export class AssetManager {
         tier: 'tier_2',
       });
       drones.push({ id, callsign, tier: 'tier_2' });
+    }
+
+    return { kitId, drones };
+  }
+
+  private applyCloudKit(cloudKit: any): {
+    kitId: string;
+    drones: { id: string; callsign: string; tier: string }[];
+  } {
+    const kitId = this.createKit({
+      name: cloudKit.name ?? `Kit ${cloudKit.serial.slice(-4).toUpperCase()}`,
+      type: cloudKit.config,
+      serial: cloudKit.serial,
+      customerId: cloudKit.customer_id ?? null,
+    });
+
+    const drones: { id: string; callsign: string; tier: string }[] = [];
+
+    for (const d of cloudKit.drones ?? []) {
+      const id = this.createDrone({
+        kitId,
+        callsign: d.callsign ?? d.serial,
+        serial: d.serial,
+        tier: d.tier,
+      });
+      drones.push({ id, callsign: d.callsign ?? d.serial, tier: d.tier });
     }
 
     return { kitId, drones };
