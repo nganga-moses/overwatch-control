@@ -220,7 +220,7 @@ export function VenueMap() {
 
       {/* Floor selector */}
       {floors.length > 1 && (
-        <div className="absolute top-3 left-3 flex flex-col gap-1 bg-ow-surface/90 border border-ow-border rounded p-1 backdrop-blur-sm">
+        <div className="absolute top-12 left-3 flex flex-col gap-1 bg-ow-surface/90 border border-ow-border rounded p-1 backdrop-blur-sm">
           {floors.map((f) => (
             <button
               key={f}
