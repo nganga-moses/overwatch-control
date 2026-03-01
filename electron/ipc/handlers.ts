@@ -2,15 +2,17 @@ import { ipcMain } from 'electron';
 import type { OverwatchDB } from '../storage/overwatch-db';
 import type { VenueManager } from '../services/venue-manager';
 import type { AssetManager } from '../services/asset-manager';
+import type { SyncManager } from '../services/sync-manager';
 import { registerVenueHandlers } from './venue-handlers';
 import { registerAssetHandlers } from './asset-handlers';
+import { registerSyncHandlers } from './sync-handlers';
 
 export function registerIPCHandlers(
   db: OverwatchDB,
   venueManager: VenueManager,
   assetManager: AssetManager,
+  syncManager?: SyncManager,
 ): void {
-  // World Model node/edge handlers
   ipcMain.handle('wm:writeNode', (_e, node) => db.writeNode(node));
   ipcMain.handle('wm:getNode', (_e, id: string) => db.getNode(id));
   ipcMain.handle('wm:queryNodes', (_e, filters?) => db.queryNodes(filters));
@@ -24,4 +26,8 @@ export function registerIPCHandlers(
 
   registerVenueHandlers(venueManager);
   registerAssetHandlers(assetManager);
+
+  if (syncManager) {
+    registerSyncHandlers(syncManager);
+  }
 }

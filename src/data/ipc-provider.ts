@@ -10,6 +10,14 @@ declare global {
       venues: Record<string, (...args: any[]) => Promise<any>>;
       assets: Record<string, (...args: any[]) => Promise<any>>;
       comms: Record<string, (...args: any[]) => any>;
+      sync: {
+        getStatus: () => Promise<any>;
+        triggerSync: () => Promise<any>;
+        bootstrap: () => Promise<any>;
+        fetchKit: (serial: string) => Promise<any>;
+        onStatusUpdate: (callback: (status: unknown) => void) => () => void;
+        onBootstrapped: (callback: () => void) => () => void;
+      };
     };
   }
 }
@@ -36,8 +44,21 @@ export function createIPCProvider(): DataProvider {
         }
       });
 
+      let unsubSyncStatus: (() => void) | undefined;
+
+      if (window.electronAPI.sync) {
+        window.electronAPI.sync.getStatus().then((status: any) => {
+          if (status) useOverwatchStore.getState().setSyncStatus(status);
+        });
+
+        unsubSyncStatus = window.electronAPI.sync.onStatusUpdate((status: any) => {
+          useOverwatchStore.getState().setSyncStatus(status);
+        });
+      }
+
       return () => {
         unsubscribe();
+        unsubSyncStatus?.();
         window.electronAPI.disconnect();
       };
     },

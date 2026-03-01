@@ -1,4 +1,5 @@
 import type { OverwatchDB } from '../storage/overwatch-db';
+import type { SyncManager } from './sync-manager';
 import type { KitType } from '../../src/shared/types/kit';
 
 const KIT_COMPOSITIONS: Record<string, { tier_1: number; tier_2: number }> = {
@@ -8,7 +9,13 @@ const KIT_COMPOSITIONS: Record<string, { tier_1: number; tier_2: number }> = {
 };
 
 export class AssetManager {
+  private syncManager: SyncManager | null = null;
+
   constructor(private db: OverwatchDB) {}
+
+  setSyncManager(syncManager: SyncManager): void {
+    this.syncManager = syncManager;
+  }
 
   // --- Kits ---
 
@@ -73,10 +80,58 @@ export class AssetManager {
   }
 
   /**
-   * Mock onboarding: enter a serial, generate a fake kit manifest
-   * simulating what the cloud would return for a real onboarding flow.
+   * Onboard a kit by serial: tries to fetch manifest from Overwatch Cloud,
+   * falling back to mock generation if cloud is unavailable.
    */
-  onboard(serial: string): {
+  async onboard(serial: string): Promise<{
+    kitId: string;
+    drones: { id: string; callsign: string; tier: string }[];
+    source: 'cloud' | 'mock';
+  }> {
+    if (this.syncManager) {
+      try {
+        const cloudKit = await this.syncManager.fetchKit(serial);
+        if (cloudKit) {
+          return this.applyCloudKit(cloudKit);
+        }
+      } catch (err) {
+        console.warn('[AssetManager] Cloud kit fetch failed, falling back to mock:', err);
+      }
+    }
+
+    return { ...this.mockOnboard(serial), source: 'mock' };
+  }
+
+  private applyCloudKit(cloudKit: any): {
+    kitId: string;
+    drones: { id: string; callsign: string; tier: string }[];
+    source: 'cloud';
+  } {
+    const comp = KIT_COMPOSITIONS[cloudKit.config] ?? { tier_1: 0, tier_2: 0 };
+
+    const kitId = this.createKit({
+      name: cloudKit.name ?? `Kit ${cloudKit.serial.slice(-4).toUpperCase()}`,
+      type: cloudKit.config,
+      serial: cloudKit.serial,
+      customerId: cloudKit.customer_id ?? null,
+    });
+
+    const drones: { id: string; callsign: string; tier: string }[] = [];
+
+    for (const d of cloudKit.drones ?? []) {
+      const id = this.createDrone({
+        kitId,
+        callsign: d.callsign ?? d.serial,
+        serial: d.serial,
+        tier: d.tier,
+      });
+      drones.push({ id, callsign: d.callsign ?? d.serial, tier: d.tier });
+    }
+
+    return { kitId, drones, source: 'cloud' };
+  }
+
+  private mockOnboard(serial: string): {
     kitId: string;
     drones: { id: string; callsign: string; tier: string }[];
   } {

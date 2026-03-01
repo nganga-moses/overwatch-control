@@ -263,4 +263,45 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 2,
+    description: 'Add sync tracking columns',
+    sql: `
+      ALTER TABLE kits ADD COLUMN synced_at TEXT;
+      ALTER TABLE kits ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE drone_profiles ADD COLUMN synced_at TEXT;
+      ALTER TABLE drone_profiles ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE venues ADD COLUMN synced_at TEXT;
+      ALTER TABLE venues ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE venue_zones ADD COLUMN synced_at TEXT;
+      ALTER TABLE venue_zones ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE zone_connections ADD COLUMN synced_at TEXT;
+      ALTER TABLE zone_connections ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE perch_points ADD COLUMN synced_at TEXT;
+      ALTER TABLE perch_points ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE operations ADD COLUMN synced_at TEXT;
+      ALTER TABLE operations ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE principals ADD COLUMN synced_at TEXT;
+      ALTER TABLE principals ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE alerts ADD COLUMN synced_at TEXT;
+
+      ALTER TABLE wm_nodes ADD COLUMN synced_at TEXT;
+      ALTER TABLE wm_nodes ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE wm_edges ADD COLUMN synced_at TEXT;
+      ALTER TABLE wm_edges ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      ALTER TABLE override_episodes ADD COLUMN synced_at TEXT;
+
+      ALTER TABLE surface_assessments ADD COLUMN synced_at TEXT;
+    `,
+  },
 ];

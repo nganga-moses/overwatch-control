@@ -629,4 +629,163 @@ export class OverwatchDB {
       )
       .run(key, typeof value === 'string' ? value : JSON.stringify(value));
   }
+
+  // ---------------------------------------------------------------------------
+  // Sync helpers
+  // ---------------------------------------------------------------------------
+
+  private static readonly SYNCABLE_TABLES = [
+    'venues', 'venue_zones', 'zone_connections', 'perch_points',
+    'kits', 'drone_profiles', 'operations', 'principals',
+    'wm_nodes', 'wm_edges',
+  ];
+
+  getUnsyncedEntities(table: string): any[] {
+    return this.db
+      .prepare(`SELECT * FROM ${table} WHERE synced_at IS NULL OR updated_at > synced_at`)
+      .all();
+  }
+
+  getAllUnsyncedEntities(): { table: string; rows: any[] }[] {
+    const result: { table: string; rows: any[] }[] = [];
+    for (const table of OverwatchDB.SYNCABLE_TABLES) {
+      const rows = this.getUnsyncedEntities(table);
+      if (rows.length > 0) {
+        result.push({ table, rows });
+      }
+    }
+    return result;
+  }
+
+  markSynced(table: string, ids: string[]): void {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db
+      .prepare(`UPDATE ${table} SET synced_at = datetime('now') WHERE id IN (${placeholders})`)
+      .run(...ids);
+  }
+
+  getUnsyncedAlerts(): any[] {
+    return this.db
+      .prepare('SELECT * FROM alerts WHERE synced_at IS NULL')
+      .all();
+  }
+
+  markAlertsSynced(ids: string[]): void {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db
+      .prepare(`UPDATE alerts SET synced_at = datetime('now') WHERE id IN (${placeholders})`)
+      .run(...ids);
+  }
+
+  getUnsyncedSurfaceAssessments(): any[] {
+    return this.db
+      .prepare('SELECT * FROM surface_assessments WHERE synced_at IS NULL')
+      .all();
+  }
+
+  markSurfaceAssessmentsSynced(ids: string[]): void {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db
+      .prepare(`UPDATE surface_assessments SET synced_at = datetime('now') WHERE id IN (${placeholders})`)
+      .run(...ids);
+  }
+
+  getUnsyncedOverrideEpisodes(): any[] {
+    return this.db
+      .prepare('SELECT * FROM override_episodes WHERE synced_at IS NULL')
+      .all();
+  }
+
+  markOverrideEpisodesSynced(ids: string[]): void {
+    if (ids.length === 0) return;
+    const placeholders = ids.map(() => '?').join(',');
+    this.db
+      .prepare(`UPDATE override_episodes SET synced_at = datetime('now') WHERE id IN (${placeholders})`)
+      .run(...ids);
+  }
+
+  applyBootstrapData(data: Record<string, any[]>): void {
+    const tableMap: Record<string, string> = {
+      venues: 'venues',
+      venue_zones: 'venue_zones',
+      zone_connections: 'zone_connections',
+      perch_points: 'perch_points',
+      kits: 'kits',
+      drones: 'drone_profiles',
+      principals: 'principals',
+      wm_nodes: 'wm_nodes',
+      wm_edges: 'wm_edges',
+    };
+
+    this.db.transaction(() => {
+      for (const [key, tableName] of Object.entries(tableMap)) {
+        const rows = data[key];
+        if (!rows || rows.length === 0) continue;
+
+        for (const row of rows) {
+          const cols = Object.keys(row);
+          const placeholders = cols.map(() => '?').join(',');
+          const onConflict = cols
+            .filter((c) => c !== 'id')
+            .map((c) => `${c}=excluded.${c}`)
+            .join(',');
+
+          this.db
+            .prepare(
+              `INSERT INTO ${tableName} (${cols.join(',')}) VALUES (${placeholders})
+               ON CONFLICT(id) DO UPDATE SET ${onConflict}`,
+            )
+            .run(...cols.map((c) => row[c] ?? null));
+        }
+      }
+    })();
+  }
+
+  applyPullEntities(entities: { table: string; id: string; data: Record<string, any> }[]): void {
+    const tableMap: Record<string, string> = {
+      venues: 'venues',
+      venue_zones: 'venue_zones',
+      zone_connections: 'zone_connections',
+      perch_points: 'perch_points',
+      kits: 'kits',
+      drones: 'drone_profiles',
+      operations: 'operations',
+      principals: 'principals',
+      wm_nodes: 'wm_nodes',
+      wm_edges: 'wm_edges',
+    };
+
+    this.db.transaction(() => {
+      for (const entity of entities) {
+        const tableName = tableMap[entity.table] ?? entity.table;
+        const row: Record<string, any> = { id: entity.id, ...entity.data };
+        const cols = Object.keys(row);
+        const placeholders = cols.map(() => '?').join(',');
+        const onConflict = cols
+          .filter((c) => c !== 'id')
+          .map((c) => `${c}=excluded.${c}`)
+          .join(',');
+
+        this.db
+          .prepare(
+            `INSERT INTO ${tableName} (${cols.join(',')}) VALUES (${placeholders})
+             ON CONFLICT(id) DO UPDATE SET ${onConflict}`,
+          )
+          .run(...cols.map((c) => row[c] ?? null));
+      }
+    })();
+  }
+
+  getNodeCount(): number {
+    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM wm_nodes').get() as any;
+    return row?.cnt ?? 0;
+  }
+
+  getEdgeCount(): number {
+    const row = this.db.prepare('SELECT COUNT(*) as cnt FROM wm_edges').get() as any;
+    return row?.cnt ?? 0;
+  }
 }

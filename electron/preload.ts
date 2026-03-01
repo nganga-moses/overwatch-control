@@ -78,4 +78,21 @@ contextBridge.exposeInMainWorld('electronAPI', {
       return () => ipcRenderer.removeListener('drone-message', handler);
     },
   },
+
+  sync: {
+    getStatus: () => ipcRenderer.invoke('sync:getStatus'),
+    triggerSync: () => ipcRenderer.invoke('sync:triggerSync'),
+    bootstrap: () => ipcRenderer.invoke('sync:bootstrap'),
+    fetchKit: (serial: string) => ipcRenderer.invoke('sync:fetchKit', serial),
+    onStatusUpdate: (callback: (status: unknown) => void) => {
+      const handler = (_event: unknown, status: unknown) => callback(status);
+      ipcRenderer.on('sync:status-update', handler);
+      return () => ipcRenderer.removeListener('sync:status-update', handler);
+    },
+    onBootstrapped: (callback: () => void) => {
+      const handler = () => callback();
+      ipcRenderer.on('sync:bootstrapped', handler);
+      return () => ipcRenderer.removeListener('sync:bootstrapped', handler);
+    },
+  },
 });

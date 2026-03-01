@@ -1,6 +1,15 @@
 import { create } from 'zustand';
 import type { DroneProfile, Venue, VenueZone, PerchPoint, Principal, Kit, Operation, PerchState } from '@/shared/types';
 
+export interface SyncState {
+  state: 'idle' | 'syncing' | 'offline' | 'error' | 'bootstrapping';
+  lastSync: string | null;
+  pendingQueueSize: number;
+  lastError: string | null;
+  isBootstrapped: boolean;
+  cloudVersion: number;
+}
+
 export interface OverwatchState {
   drones: DroneProfile[];
   venue: {
@@ -21,6 +30,7 @@ export interface OverwatchState {
     timestamp: number;
     acknowledged: boolean;
   }>;
+  syncStatus: SyncState;
   simTickCount: number;
   simElapsedMs: number;
 
@@ -31,6 +41,7 @@ export interface OverwatchState {
   setOperations: (operations: Operation[]) => void;
   addAlert: (alert: OverwatchState['alerts'][0]) => void;
   acknowledgeAlert: (id: string) => void;
+  setSyncStatus: (status: SyncState) => void;
   setSimTick: (tickCount: number, elapsedMs: number) => void;
 
   getDronesByTier: (tier: 'tier_1' | 'tier_2') => DroneProfile[];
@@ -46,6 +57,14 @@ export const useOverwatchStore = create<OverwatchState>((set, get) => ({
   kits: [],
   operations: [],
   alerts: [],
+  syncStatus: {
+    state: 'idle',
+    lastSync: null,
+    pendingQueueSize: 0,
+    lastError: null,
+    isBootstrapped: false,
+    cloudVersion: 0,
+  },
   simTickCount: 0,
   simElapsedMs: 0,
 
@@ -62,6 +81,7 @@ export const useOverwatchStore = create<OverwatchState>((set, get) => ({
         a.id === id ? { ...a, acknowledged: true } : a,
       ),
     })),
+  setSyncStatus: (status) => set({ syncStatus: status }),
   setSimTick: (tickCount, elapsedMs) => set({ simTickCount: tickCount, simElapsedMs: elapsedMs }),
 
   getDronesByTier: (tier) => get().drones.filter((d) => d.tier === tier),

@@ -6,6 +6,7 @@ import type { DroneProfile, Tier } from '@/shared/types';
 import {
   Shield, Map, Box, AlertTriangle, Crosshair,
   Eye, Radio, Settings, Battery, Clock, Activity,
+  Cloud, CloudOff, Loader2,
 } from 'lucide-react';
 
 const DOCK_BG = '#0c1219';
@@ -214,6 +215,7 @@ export function OverwatchDock({
   const principal = useOverwatchStore((s) => s.principal);
   const alerts = useOverwatchStore((s) => s.alerts);
   const simElapsedMs = useOverwatchStore((s) => s.simElapsedMs);
+  const syncStatus = useOverwatchStore((s) => s.syncStatus);
 
   const [activeTier, setActiveTier] = useState<Tier>('tier_1');
 
@@ -277,6 +279,34 @@ export function OverwatchDock({
           <div className="flex items-center gap-1.5" style={{ color: '#3fb950' }}>
             <Shield size={11} />
             <span>All clear</span>
+          </div>
+        )}
+
+        <div className="w-px h-3" style={{ background: `${DIVIDER}` }} />
+
+        {/* Sync status */}
+        {syncStatus.state === 'syncing' || syncStatus.state === 'bootstrapping' ? (
+          <div className="flex items-center gap-1.5" style={{ color: '#58a6ff' }}>
+            <Loader2 size={11} className="animate-spin" />
+            <span>{syncStatus.state === 'bootstrapping' ? 'Bootstrap' : 'Syncing'}</span>
+          </div>
+        ) : syncStatus.state === 'offline' ? (
+          <div className="flex items-center gap-1.5" style={{ color: '#d29922' }}>
+            <CloudOff size={11} />
+            <span>Offline</span>
+            {syncStatus.pendingQueueSize > 0 && (
+              <span style={{ color: TEXT_DIM }}>({syncStatus.pendingQueueSize} queued)</span>
+            )}
+          </div>
+        ) : syncStatus.state === 'error' ? (
+          <div className="flex items-center gap-1.5" style={{ color: '#f85149' }} title={syncStatus.lastError ?? ''}>
+            <CloudOff size={11} />
+            <span>Sync err</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5" style={{ color: '#3fb950' }}>
+            <Cloud size={11} />
+            <span>Synced</span>
           </div>
         )}
 

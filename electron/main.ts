@@ -3,6 +3,7 @@ import path from 'path';
 import { OverwatchDB } from './storage/overwatch-db';
 import { VenueManager } from './services/venue-manager';
 import { AssetManager } from './services/asset-manager';
+import { SyncManager } from './services/sync-manager';
 import { registerIPCHandlers } from './ipc/handlers';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -13,6 +14,7 @@ app.setName('Overwatch Control');
 let db: OverwatchDB | null = null;
 let venueManager: VenueManager | null = null;
 let assetManager: AssetManager | null = null;
+let syncManager: SyncManager | null = null;
 
 function getAssetsBase(): string {
   return app.isPackaged
@@ -52,7 +54,32 @@ function createWindow(): BrowserWindow {
   return mainWindow;
 }
 
-app.whenReady().then(() => {
+function initSyncManager(overwatchDb: OverwatchDB): SyncManager | null {
+  const cloudApiUrl = process.env.OW_CLOUD_API_URL;
+  const apiKey = process.env.OW_API_KEY;
+  const workstationId = process.env.OW_WORKSTATION_ID;
+
+  if (!cloudApiUrl || !apiKey || !workstationId) {
+    console.info(
+      '[Main] Sync disabled — set OW_CLOUD_API_URL, OW_API_KEY, OW_WORKSTATION_ID to enable',
+    );
+    return null;
+  }
+
+  return new SyncManager(
+    {
+      cloudApiUrl,
+      apiKey,
+      workstationId,
+      dataDir: app.getPath('userData'),
+      syncIntervalMs: parseInt(process.env.OW_SYNC_INTERVAL_MS ?? '300000', 10),
+      heartbeatIntervalMs: parseInt(process.env.OW_HEARTBEAT_INTERVAL_MS ?? '60000', 10),
+    },
+    overwatchDb,
+  );
+}
+
+app.whenReady().then(async () => {
   if (process.platform === 'darwin' && app.dock) {
     const dockIcon = path.join(getAssetsBase(), 'overwatch.png');
     app.dock.setIcon(dockIcon);
@@ -64,16 +91,32 @@ app.whenReady().then(() => {
   venueManager = new VenueManager(db);
   assetManager = new AssetManager(db);
 
-  registerIPCHandlers(db, venueManager, assetManager);
+  syncManager = initSyncManager(db);
+
+  if (syncManager) {
+    assetManager.setSyncManager(syncManager);
+  }
+
+  registerIPCHandlers(db, venueManager, assetManager, syncManager ?? undefined);
 
   createWindow();
+
+  if (syncManager) {
+    syncManager.start().catch((err) => {
+      console.error('[Main] SyncManager failed to start:', err);
+    });
+  }
 });
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
+  if (syncManager) {
+    await syncManager.stop();
+    syncManager = null;
+  }
   if (db) {
     db.close();
     db = null;
