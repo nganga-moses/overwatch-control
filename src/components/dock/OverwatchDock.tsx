@@ -1,12 +1,11 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { useOverwatchStore } from '@/shared/store/overwatch-store';
 import { TierBadge } from '@/components/common/TierBadge';
 import { PerchStateIcon } from '@/components/common/PerchStateIcon';
 import type { DroneProfile, Tier } from '@/shared/types';
 import {
   Shield, Map, Box, AlertTriangle, Crosshair,
-  Eye, Radio, Settings, Battery, Clock,
-  Anchor, Navigation, Moon,
+  Eye, Radio, Settings, Battery, Clock, Activity,
 } from 'lucide-react';
 
 const DOCK_BG = '#0c1219';
@@ -49,6 +48,14 @@ function formatDuration(ms: number | null): string {
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
+}
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
 function SelectedDroneBox({ drone, onClick }: { drone: DroneProfile | null; onClick: () => void }) {
@@ -126,6 +133,39 @@ function NavBox({ label, icon: Icon, active, badge, onClick }: {
   );
 }
 
+function TierToggle({ selected, onChange, tier1Count, tier2Count }: {
+  selected: Tier; onChange: (tier: Tier) => void; tier1Count: number; tier2Count: number;
+}) {
+  return (
+    <div className="flex items-center rounded-full p-[2px]" style={{ background: '#141e25', border: `1px solid ${DIVIDER}` }}>
+      <button
+        onClick={() => onChange('tier_1')}
+        className="flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[9px] font-bold tracking-wider transition-all"
+        style={{
+          background: selected === 'tier_1' ? '#a78bfa25' : 'transparent',
+          color: selected === 'tier_1' ? '#a78bfa' : TEXT_DIM,
+          boxShadow: selected === 'tier_1' ? '0 0 8px #a78bfa20' : 'none',
+        }}
+      >
+        T1
+        <span className="font-mono text-[8px] opacity-70">{tier1Count}</span>
+      </button>
+      <button
+        onClick={() => onChange('tier_2')}
+        className="flex items-center gap-1 px-2.5 py-[3px] rounded-full text-[9px] font-bold tracking-wider transition-all"
+        style={{
+          background: selected === 'tier_2' ? '#f9731625' : 'transparent',
+          color: selected === 'tier_2' ? '#f97316' : TEXT_DIM,
+          boxShadow: selected === 'tier_2' ? '0 0 8px #f9731620' : 'none',
+        }}
+      >
+        T2
+        <span className="font-mono text-[8px] opacity-70">{tier2Count}</span>
+      </button>
+    </div>
+  );
+}
+
 function DroneChip({ drone, selected, onClick }: {
   drone: DroneProfile; selected: boolean; onClick: () => void;
 }) {
@@ -151,7 +191,9 @@ function DroneChip({ drone, selected, onClick }: {
         <PerchStateIcon state={drone.perchState} size={12} />
       </div>
       <div className="flex items-center justify-between">
-        <TierBadge tier={drone.tier} />
+        <span className="text-[8px] font-mono capitalize" style={{ color: TEXT_DIM }}>
+          {drone.perchState.replace('_', ' ')}
+        </span>
         <span className="text-[7px] font-mono" style={{ color: batteryColor }}>
           {Math.round(drone.batteryPercent)}%
         </span>
@@ -169,7 +211,11 @@ export function OverwatchDock({
   onSelectDrone,
 }: OverwatchDockProps) {
   const drones = useOverwatchStore((s) => s.drones);
+  const principal = useOverwatchStore((s) => s.principal);
   const alerts = useOverwatchStore((s) => s.alerts);
+  const simElapsedMs = useOverwatchStore((s) => s.simElapsedMs);
+
+  const [activeTier, setActiveTier] = useState<Tier>('tier_1');
 
   const selectedDrone = useMemo(
     () => selectedDroneId ? drones.find((d) => d.id === selectedDroneId) ?? null : null,
@@ -177,11 +223,84 @@ export function OverwatchDock({
   );
 
   const unackAlerts = alerts.filter((a) => !a.acknowledged);
+  const criticalAlerts = unackAlerts.filter((a) => a.severity === 'critical');
   const tier1 = drones.filter((d) => d.tier === 'tier_1');
   const tier2 = drones.filter((d) => d.tier === 'tier_2');
+  const activeCount = drones.filter((d) => d.perchState !== 'sleeping').length;
+  const perchedCount = drones.filter((d) => d.perchState === 'perched').length;
+
+  const visibleDrones = activeTier === 'tier_1' ? tier1 : tier2;
 
   return (
     <div className="absolute bottom-0 left-0 right-0 z-40">
+      {/* Status strip — directly above dock */}
+      <div
+        className="flex items-center h-7 px-4 gap-5 text-[10px] font-mono"
+        style={{ background: '#0c1219e6', borderTop: `1px solid ${DIVIDER}` }}
+      >
+        <div className="flex items-center gap-1.5">
+          <Shield size={11} className="text-ow-accent" />
+          <span style={{ color: TEXT_DIM }}>Principal:</span>
+          <span
+            style={{
+              color: principal?.status === 'safe' ? '#3fb950'
+                : principal?.status === 'at_risk' ? '#f85149'
+                : TEXT_DIM,
+            }}
+          >
+            {principal?.codename ?? '--'} ({principal?.status ?? 'unknown'})
+          </span>
+        </div>
+
+        <div className="w-px h-3" style={{ background: `${DIVIDER}` }} />
+
+        <div className="flex items-center gap-1.5">
+          <Activity size={11} style={{ color: '#58a6ff' }} />
+          <span style={{ color: TEXT_DIM }}>Drones:</span>
+          <span style={{ color: TEXT_LIGHT }}>{activeCount}/{drones.length}</span>
+          <span style={{ color: '#3fb950' }}>{perchedCount} perched</span>
+        </div>
+
+        <div className="w-px h-3" style={{ background: `${DIVIDER}` }} />
+
+        {criticalAlerts.length > 0 ? (
+          <div className="flex items-center gap-1.5" style={{ color: '#f85149' }}>
+            <AlertTriangle size={11} />
+            <span>{criticalAlerts.length} critical</span>
+          </div>
+        ) : unackAlerts.length > 0 ? (
+          <div className="flex items-center gap-1.5" style={{ color: '#d29922' }}>
+            <AlertTriangle size={11} />
+            <span>{unackAlerts.length} alerts</span>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1.5" style={{ color: '#3fb950' }}>
+            <Shield size={11} />
+            <span>All clear</span>
+          </div>
+        )}
+
+        <div className="flex-1" />
+
+        {/* SIM/LIVE toggle in status strip */}
+        <button
+          onClick={() => onModeChange(mode === 'simulation' ? 'live' : 'simulation')}
+          className="flex items-center gap-1.5 px-2 py-0.5 rounded-full transition-all hover:brightness-125"
+          style={{
+            background: mode === 'simulation' ? '#d2992215' : '#3fb95015',
+            border: `1px solid ${mode === 'simulation' ? '#d2992240' : '#3fb95040'}`,
+          }}
+        >
+          <Radio size={10} style={{ color: mode === 'simulation' ? '#d29922' : '#3fb950' }} />
+          <span className="text-[9px] font-bold tracking-wider" style={{ color: mode === 'simulation' ? '#d29922' : '#3fb950' }}>
+            {mode === 'simulation' ? 'SIM' : 'LIVE'}
+          </span>
+        </button>
+
+        <span style={{ color: TEXT_DIM }}>{formatElapsed(simElapsedMs)}</span>
+      </div>
+
+      {/* Main dock */}
       <div
         className="flex items-stretch gap-[3px] p-[4px] h-[160px]"
         style={{ background: DOCK_BG, borderTop: `1px solid ${DIVIDER}` }}
@@ -206,68 +325,35 @@ export function OverwatchDock({
           <NavBox label="Settings" icon={Settings} active={activePanel === 'settings'} onClick={() => onPanelSelect('settings')} />
         </div>
 
-        {/* RIGHT: Drone grid — split by tier */}
-        <div className="w-[320px] shrink-0 overflow-y-auto overflow-x-hidden" style={{ maxHeight: '100%' }}>
-          <div className="flex flex-col gap-[3px] h-full">
-            {/* Tier 1 row */}
-            {tier1.length > 0 && (
-              <div>
-                <div className="flex items-center gap-1 px-1 mb-[2px]">
-                  <TierBadge tier="tier_1" />
-                  <span className="text-[8px] font-mono" style={{ color: TEXT_DIM }}>
-                    {tier1.filter((d) => d.perchState !== 'sleeping').length}/{tier1.length}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-[3px]">
-                  {tier1.map((d) => (
-                    <DroneChip
-                      key={d.id}
-                      drone={d}
-                      selected={d.id === selectedDroneId}
-                      onClick={() => onSelectDrone(d.id === selectedDroneId ? null : d.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
-            {/* Tier 2 row */}
-            {tier2.length > 0 && (
-              <div>
-                <div className="flex items-center gap-1 px-1 mb-[2px]">
-                  <TierBadge tier="tier_2" />
-                  <span className="text-[8px] font-mono" style={{ color: TEXT_DIM }}>
-                    {tier2.filter((d) => d.perchState !== 'sleeping').length}/{tier2.length}
-                  </span>
-                </div>
-                <div className="grid grid-cols-4 gap-[3px]">
-                  {tier2.map((d) => (
-                    <DroneChip
-                      key={d.id}
-                      drone={d}
-                      selected={d.id === selectedDroneId}
-                      onClick={() => onSelectDrone(d.id === selectedDroneId ? null : d.id)}
-                    />
-                  ))}
-                </div>
-              </div>
-            )}
+        {/* RIGHT: Drone grid with tier toggle */}
+        <div className="w-[320px] shrink-0 flex flex-col" style={{ maxHeight: '100%' }}>
+          {/* Tier toggle header */}
+          <div className="flex items-center justify-between px-1 pb-[3px]">
+            <TierToggle
+              selected={activeTier}
+              onChange={setActiveTier}
+              tier1Count={tier1.length}
+              tier2Count={tier2.length}
+            />
+            <span className="text-[8px] font-mono" style={{ color: TEXT_DIM }}>
+              {visibleDrones.filter((d) => d.perchState !== 'sleeping').length}/{visibleDrones.length} active
+            </span>
+          </div>
+
+          {/* Drone chips */}
+          <div className="flex-1 overflow-y-auto">
+            <div className="grid grid-cols-4 gap-[3px]">
+              {visibleDrones.map((d) => (
+                <DroneChip
+                  key={d.id}
+                  drone={d}
+                  selected={d.id === selectedDroneId}
+                  onClick={() => onSelectDrone(d.id === selectedDroneId ? null : d.id)}
+                />
+              ))}
+            </div>
           </div>
         </div>
-
-        {/* Mode indicator — far right */}
-        <button
-          onClick={() => onModeChange(mode === 'simulation' ? 'live' : 'simulation')}
-          className="w-[48px] shrink-0 flex flex-col items-center justify-center rounded cursor-pointer transition-all hover:brightness-125"
-          style={{
-            background: GRAD_DEFAULT,
-            border: `1px solid ${DIVIDER}`,
-          }}
-        >
-          <Radio size={14} style={{ color: mode === 'simulation' ? '#d29922' : '#3fb950' }} />
-          <span className="text-[8px] font-bold tracking-wider mt-1" style={{ color: mode === 'simulation' ? '#d29922' : '#3fb950' }}>
-            {mode === 'simulation' ? 'SIM' : 'LIVE'}
-          </span>
-        </button>
       </div>
     </div>
   );
