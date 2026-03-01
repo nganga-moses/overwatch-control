@@ -344,4 +344,33 @@ export const migrations: Migration[] = [
       ALTER TABLE surface_assessments_v2 RENAME TO surface_assessments;
     `,
   },
+  {
+    version: 4,
+    description: 'Workstation config, operators, audit log for auth & provisioning',
+    sql: `
+      CREATE TABLE IF NOT EXISTS workstation_config (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS operators (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'operator',
+        pin_digits_json TEXT NOT NULL,
+        is_active INTEGER NOT NULL DEFAULT 1,
+        synced_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS audit_log (
+        id TEXT PRIMARY KEY,
+        operator_id TEXT REFERENCES operators(id),
+        action TEXT NOT NULL,
+        detail TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+    `,
+  },
 ];

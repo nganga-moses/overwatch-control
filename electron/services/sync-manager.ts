@@ -290,7 +290,29 @@ export class SyncManager extends EventEmitter {
       this.updateStatus({ cloudVersion: data.cloud_version });
     }
 
+    await this.pullOperators();
+
     this.emit('pulled', data);
+  }
+
+  private async pullOperators(): Promise<void> {
+    try {
+      const resp = await this.apiFetch('/api/v1/auth/operators');
+      if (!resp.ok) return;
+      const operators = await resp.json();
+      for (const op of operators) {
+        this.db.upsertOperator({
+          id: op.id,
+          name: op.name,
+          role: op.role,
+          pinDigitsJson: op.pin_digits_json,
+          isActive: op.is_active,
+        });
+      }
+      console.info('[SyncManager] Synced %d operators', operators.length);
+    } catch (err) {
+      console.warn('[SyncManager] Operator sync failed:', err);
+    }
   }
 
   private async processQueue(): Promise<void> {

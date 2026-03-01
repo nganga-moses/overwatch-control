@@ -216,6 +216,7 @@ export function OverwatchDock({
   const alerts = useOverwatchStore((s) => s.alerts);
   const simElapsedMs = useOverwatchStore((s) => s.simElapsedMs);
   const syncStatus = useOverwatchStore((s) => s.syncStatus);
+  const activeOperator = useOverwatchStore((s) => s.activeOperator);
 
   const [activeTier, setActiveTier] = useState<Tier>('tier_1');
 
@@ -308,6 +309,16 @@ export function OverwatchDock({
             <Cloud size={11} />
             <span>Synced</span>
           </div>
+        )}
+
+        {activeOperator && (
+          <>
+            <div className="w-px h-3" style={{ background: `${DIVIDER}` }} />
+            <div className="flex items-center gap-1.5">
+              <span style={{ color: TEXT_DIM }}>Op:</span>
+              <span style={{ color: TEXT_LIGHT }}>{activeOperator.name}</span>
+            </div>
+          </>
         )}
 
         <div className="flex-1" />

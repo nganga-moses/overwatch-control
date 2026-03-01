@@ -747,6 +747,95 @@ export class OverwatchDB {
   }
 
   // ---------------------------------------------------------------------------
+  // Workstation Config (key-value)
+  // ---------------------------------------------------------------------------
+
+  getConfig(key: string): string | null {
+    const row = this.db
+      .prepare('SELECT value FROM workstation_config WHERE key = ?')
+      .get(key) as any;
+    return row?.value ?? null;
+  }
+
+  setConfig(key: string, value: string): void {
+    this.db
+      .prepare(
+        `INSERT INTO workstation_config (key, value) VALUES (?, ?)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=datetime('now')`,
+      )
+      .run(key, value);
+  }
+
+  getAllConfig(): Record<string, string> {
+    const rows = this.db.prepare('SELECT key, value FROM workstation_config').all() as any[];
+    const result: Record<string, string> = {};
+    for (const row of rows) result[row.key] = row.value;
+    return result;
+  }
+
+  isActivated(): boolean {
+    return this.getConfig('is_activated') === 'true';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Operators
+  // ---------------------------------------------------------------------------
+
+  upsertOperator(op: {
+    id: string;
+    name: string;
+    role: string;
+    pinDigitsJson: string;
+    isActive: boolean;
+  }): void {
+    this.db
+      .prepare(
+        `INSERT INTO operators (id, name, role, pin_digits_json, is_active, synced_at)
+         VALUES (?, ?, ?, ?, ?, datetime('now'))
+         ON CONFLICT(id) DO UPDATE SET
+           name=excluded.name, role=excluded.role,
+           pin_digits_json=excluded.pin_digits_json,
+           is_active=excluded.is_active,
+           synced_at=datetime('now')`,
+      )
+      .run(op.id, op.name, op.role, op.pinDigitsJson, op.isActive ? 1 : 0);
+  }
+
+  getActiveOperators(): any[] {
+    return this.db
+      .prepare('SELECT * FROM operators WHERE is_active = 1 ORDER BY name')
+      .all();
+  }
+
+  getOperator(id: string): any {
+    return this.db.prepare('SELECT * FROM operators WHERE id = ?').get(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Audit Log
+  // ---------------------------------------------------------------------------
+
+  writeAuditLog(entry: {
+    operatorId: string;
+    action: string;
+    detail?: string | null;
+  }): string {
+    const id = generateId();
+    this.db
+      .prepare(
+        'INSERT INTO audit_log (id, operator_id, action, detail) VALUES (?, ?, ?, ?)',
+      )
+      .run(id, entry.operatorId, entry.action, entry.detail ?? null);
+    return id;
+  }
+
+  getAuditLog(limit = 100): any[] {
+    return this.db
+      .prepare('SELECT * FROM audit_log ORDER BY created_at DESC LIMIT ?')
+      .all(limit);
+  }
+
+  // ---------------------------------------------------------------------------
   // Sync helpers
   // ---------------------------------------------------------------------------
 

@@ -99,6 +99,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
     },
   },
 
+  auth: {
+    isActivated: () => ipcRenderer.invoke('auth:isActivated'),
+    activate: (cloudUrl: string, code: string) =>
+      ipcRenderer.invoke('auth:activate', cloudUrl, code),
+    getOperators: () => ipcRenderer.invoke('auth:getOperators'),
+    getChallengePositions: (excludePositions?: number[]) =>
+      ipcRenderer.invoke('auth:getChallengePositions', excludePositions),
+    validatePin: (operatorId: string, positions: number[], digits: string[]) =>
+      ipcRenderer.invoke('auth:validatePin', operatorId, positions, digits),
+    writeAuditLog: (entry: { operatorId: string; action: string; detail?: string }) =>
+      ipcRenderer.invoke('auth:writeAuditLog', entry),
+    getCustomerName: () => ipcRenderer.invoke('auth:getCustomerName'),
+  },
+
   sync: {
     getStatus: () => ipcRenderer.invoke('sync:getStatus'),
     triggerSync: () => ipcRenderer.invoke('sync:triggerSync'),

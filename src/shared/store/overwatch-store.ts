@@ -10,7 +10,14 @@ export interface SyncState {
   cloudVersion: number;
 }
 
+export interface ActiveOperator {
+  id: string;
+  name: string;
+  role: string;
+}
+
 export interface OverwatchState {
+  activeOperator: ActiveOperator | null;
   drones: DroneProfile[];
   venue: {
     id: string;
@@ -34,6 +41,7 @@ export interface OverwatchState {
   simTickCount: number;
   simElapsedMs: number;
 
+  setActiveOperator: (op: ActiveOperator | null) => void;
   setDrones: (drones: DroneProfile[]) => void;
   setVenue: (venue: OverwatchState['venue']) => void;
   setPrincipal: (principal: Principal | null) => void;
@@ -51,6 +59,7 @@ export interface OverwatchState {
 }
 
 export const useOverwatchStore = create<OverwatchState>((set, get) => ({
+  activeOperator: null,
   drones: [],
   venue: null,
   principal: null,
@@ -68,6 +77,7 @@ export const useOverwatchStore = create<OverwatchState>((set, get) => ({
   simTickCount: 0,
   simElapsedMs: 0,
 
+  setActiveOperator: (op) => set({ activeOperator: op }),
   setDrones: (drones) => set({ drones }),
   setVenue: (venue) => set({ venue }),
   setPrincipal: (principal) => set({ principal }),

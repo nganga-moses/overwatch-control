@@ -4,6 +4,7 @@ import { OverwatchDB } from './storage/overwatch-db';
 import { VenueManager } from './services/venue-manager';
 import { AssetManager } from './services/asset-manager';
 import { SyncManager } from './services/sync-manager';
+import { ActivationService } from './services/activation-service';
 import { registerIPCHandlers } from './ipc/handlers';
 
 declare const MAIN_WINDOW_VITE_DEV_SERVER_URL: string | undefined;
@@ -15,6 +16,7 @@ let db: OverwatchDB | null = null;
 let venueManager: VenueManager | null = null;
 let assetManager: AssetManager | null = null;
 let syncManager: SyncManager | null = null;
+let activationService: ActivationService | null = null;
 
 function getAssetsBase(): string {
   return app.isPackaged
@@ -55,14 +57,23 @@ function createWindow(): BrowserWindow {
 }
 
 function initSyncManager(overwatchDb: OverwatchDB): SyncManager | null {
-  const cloudApiUrl = process.env.OW_CLOUD_API_URL;
-  const apiKey = process.env.OW_API_KEY;
-  const workstationId = process.env.OW_WORKSTATION_ID;
+  // Env vars take precedence (dev override)
+  let cloudApiUrl = process.env.OW_CLOUD_API_URL;
+  let apiKey = process.env.OW_API_KEY;
+  let workstationId = process.env.OW_WORKSTATION_ID;
+
+  // Fall back to DB-stored credentials from activation
+  if (!cloudApiUrl || !apiKey || !workstationId) {
+    const creds = activationService?.getCredentials();
+    if (creds) {
+      cloudApiUrl = cloudApiUrl ?? creds.cloudUrl;
+      apiKey = apiKey ?? creds.apiKey;
+      workstationId = workstationId ?? creds.workstationId;
+    }
+  }
 
   if (!cloudApiUrl || !apiKey || !workstationId) {
-    console.info(
-      '[Main] Sync disabled — set OW_CLOUD_API_URL, OW_API_KEY, OW_WORKSTATION_ID to enable',
-    );
+    console.info('[Main] Sync disabled — workstation not yet activated');
     return null;
   }
 
@@ -88,6 +99,7 @@ app.whenReady().then(async () => {
   db = new OverwatchDB(app.getPath('userData'));
   db.initialize();
 
+  activationService = new ActivationService(db);
   venueManager = new VenueManager(db);
   assetManager = new AssetManager(db);
 
@@ -98,7 +110,7 @@ app.whenReady().then(async () => {
     assetManager.setSyncManager(syncManager);
   }
 
-  registerIPCHandlers(db, venueManager, assetManager, syncManager ?? undefined);
+  registerIPCHandlers(db, venueManager, assetManager, activationService, syncManager ?? undefined);
 
   createWindow();
 

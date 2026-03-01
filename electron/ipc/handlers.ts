@@ -3,14 +3,17 @@ import type { OverwatchDB } from '../storage/overwatch-db';
 import type { VenueManager } from '../services/venue-manager';
 import type { AssetManager } from '../services/asset-manager';
 import type { SyncManager } from '../services/sync-manager';
+import type { ActivationService } from '../services/activation-service';
 import { registerVenueHandlers } from './venue-handlers';
 import { registerAssetHandlers } from './asset-handlers';
 import { registerSyncHandlers } from './sync-handlers';
+import { registerAuthHandlers } from './auth-handlers';
 
 export function registerIPCHandlers(
   db: OverwatchDB,
   venueManager: VenueManager,
   assetManager: AssetManager,
+  activationService: ActivationService,
   syncManager?: SyncManager,
 ): void {
   ipcMain.handle('wm:writeNode', (_e, node) => db.writeNode(node));
@@ -24,6 +27,7 @@ export function registerIPCHandlers(
   ipcMain.handle('wm:writeEdge', (_e, edge) => db.writeEdge(edge));
   ipcMain.handle('wm:queryEdges', (_e, filters?) => db.queryEdges(filters));
 
+  registerAuthHandlers(activationService, db);
   registerVenueHandlers(venueManager);
   registerAssetHandlers(assetManager);
 
