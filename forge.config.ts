@@ -9,7 +9,9 @@ const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
     name: 'Overwatch Control',
+    executableName: 'Overwatch Control',
     icon: './assets/overwatch',
+    extraResource: ['./assets'],
   },
   rebuildConfig: {},
   makers: [

@@ -14,7 +14,15 @@ let db: OverwatchDB | null = null;
 let venueManager: VenueManager | null = null;
 let assetManager: AssetManager | null = null;
 
+function getAssetsBase(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, 'assets')
+    : path.join(__dirname, '..', '..', 'assets');
+}
+
 function createWindow(): BrowserWindow {
+  const iconPath = path.join(getAssetsBase(), 'overwatch.png');
+
   const mainWindow = new BrowserWindow({
     width: 1600,
     height: 1000,
@@ -24,7 +32,7 @@ function createWindow(): BrowserWindow {
     titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 12, y: 12 },
     backgroundColor: '#0d1117',
-    icon: path.join(__dirname, '..', '..', 'assets', 'overwatch.png'),
+    icon: iconPath,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -45,6 +53,11 @@ function createWindow(): BrowserWindow {
 }
 
 app.whenReady().then(() => {
+  if (process.platform === 'darwin' && app.dock) {
+    const dockIcon = path.join(getAssetsBase(), 'overwatch.png');
+    app.dock.setIcon(dockIcon);
+  }
+
   db = new OverwatchDB(app.getPath('userData'));
   db.initialize();
 
