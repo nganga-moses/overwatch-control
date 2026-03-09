@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useOverwatchStore } from '@/shared/store/overwatch-store';
+import { useIntelligenceStore } from '@/shared/store/intelligence-store';
 import { TierBadge } from '@/components/common/TierBadge';
 import { PerchStateIcon } from '@/components/common/PerchStateIcon';
 import type { DroneProfile, Tier } from '@/shared/types';
 import {
-  Shield, Map, Box, AlertTriangle, Crosshair,
-  Eye, Radio, Settings, Battery, Clock, Activity,
-  Cloud, CloudOff, Loader2,
+  Shield, Map, AlertTriangle, Crosshair, Video,
+  Settings, Battery, Clock, Activity, Radio,
+  Cloud, CloudOff, Loader2, LogOut,
 } from 'lucide-react';
 
 const DOCK_BG = '#0c1219';
@@ -17,18 +18,36 @@ const TEXT_DIM = '#5a6a70';
 
 const GRAD_DEFAULT = 'linear-gradient(180deg, #1a2530 0%, #141e25 100%)';
 const GRAD_SELECTED = 'linear-gradient(180deg, #243038 0%, #1c2830 100%)';
-const GRAD_PANEL = 'linear-gradient(180deg, #1e2a30 0%, #151e25 100%)';
-const GRAD_EMPTY = 'linear-gradient(180deg, #182028 0%, #121a20 100%)';
 
-export type DockPanel = 'map' | 'coverage' | 'alerts' | 'briefing' | 'operations' | 'assets' | 'worldmodel' | 'settings';
+export type DockPanel = 'map' | 'coverage' | 'feed' | 'missions' | 'assets' | 'kit_mgmt' | 'settings';
 
 interface OverwatchDockProps {
   activePanel: DockPanel;
   onPanelSelect: (panel: DockPanel) => void;
   mode: 'simulation' | 'live';
   onModeChange: (mode: 'simulation' | 'live') => void;
+  onLogout: () => void;
   selectedDroneId: string | null;
   onSelectDrone: (id: string | null) => void;
+}
+
+function SettingsButton({ active, onClick }: { active: boolean; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      title="Settings"
+      className="relative flex items-center justify-center p-1 rounded transition-all hover:brightness-125"
+      style={{
+        background: active ? 'rgba(23, 130, 106, 0.2)' : 'transparent',
+        border: `1px solid ${active ? 'rgba(23, 130, 106, 0.4)' : 'transparent'}`,
+      }}
+    >
+      <Settings
+        size={14}
+        style={{ color: active ? '#17826A' : TEXT_DIM }}
+      />
+    </button>
+  );
 }
 
 function statusColor(state: string): string {
@@ -59,51 +78,6 @@ function formatElapsed(ms: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-function SelectedDroneBox({ drone, onClick }: { drone: DroneProfile | null; onClick: () => void }) {
-  if (!drone) {
-    return (
-      <div className="h-full flex items-center justify-center p-2.5" style={{ background: GRAD_EMPTY }}>
-        <div className="text-center">
-          <Eye size={18} style={{ color: TEXT_DIM }} className="mx-auto mb-1" />
-          <span className="text-[9px]" style={{ color: TEXT_DIM }}>No selection</span>
-        </div>
-      </div>
-    );
-  }
-
-  const color = statusColor(drone.perchState);
-  const batteryColor = drone.batteryPercent > 50 ? '#3fb950' : drone.batteryPercent > 20 ? '#d29922' : '#f85149';
-
-  return (
-    <div className="h-full flex flex-col justify-between p-2.5 cursor-pointer" style={{ background: GRAD_PANEL }} onClick={onClick}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] font-bold tracking-wider uppercase" style={{ color: TEXT_LIGHT }}>
-            {drone.callsign}
-          </span>
-          <TierBadge tier={drone.tier} />
-        </div>
-        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded" style={{ color, background: `${color}20` }}>
-          {drone.perchState}
-        </span>
-      </div>
-      <div className="flex-1 flex items-center justify-center py-1">
-        <PerchStateIcon state={drone.perchState} size={28} />
-      </div>
-      <div className="flex items-center justify-between text-[8px] font-mono" style={{ color: TEXT_DIM }}>
-        <span className="flex items-center gap-0.5" style={{ color: batteryColor }}>
-          <Battery size={9} /> {Math.round(drone.batteryPercent)}%
-        </span>
-        {drone.perchStartedAt && (
-          <span className="flex items-center gap-0.5">
-            <Clock size={9} /> {formatDuration(drone.perchStartedAt)}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 function NavBox({ label, icon: Icon, active, badge, onClick }: {
   label: string; icon: typeof Shield; active: boolean; badge?: number; onClick: () => void;
 }) {
@@ -118,17 +92,32 @@ function NavBox({ label, icon: Icon, active, badge, onClick }: {
     >
       <span
         className="text-[9px] font-bold tracking-wider uppercase leading-none self-start z-10"
-        style={{ color: TEXT_LIGHT, textShadow: '0 1px 3px rgba(0,0,0,0.8)' }}
+        style={{ color: TEXT_LIGHT, textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.5)' }}
       >
         {label}
       </span>
       <div className="flex-1 flex items-center justify-center">
-        <Icon size={14} style={{ color: active ? '#2dd4bf' : TEXT_DIM }} />
+        <Icon
+          size={14}
+          style={{
+            color: active ? '#17826A' : TEXT_DIM,
+            filter: active ? 'brightness(1.1)' : undefined,
+          }}
+        />
       </div>
       {badge !== undefined && badge > 0 && (
-        <span className="absolute -top-1 -right-1 flex items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[#f85149] text-white text-[8px] font-bold z-10">
+        <span
+          className="absolute -top-1 -right-1 flex items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[#c43a3a] text-white text-[8px] font-bold z-10"
+          style={{ boxShadow: '0 0 6px rgba(196,58,58,0.6)' }}
+        >
           {badge > 99 ? '99+' : badge}
         </span>
+      )}
+      {active && (
+        <div
+          className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full z-10"
+          style={{ backgroundColor: '#17826A' }}
+        />
       )}
     </button>
   );
@@ -203,11 +192,65 @@ function DroneChip({ drone, selected, onClick }: {
   );
 }
 
+function IntelligenceNavBox() {
+  const panelOpen = useIntelligenceStore((s) => s.panelOpen);
+  const setPanelOpen = useIntelligenceStore((s) => s.setPanelOpen);
+  const actionCards = useIntelligenceStore((s) => s.actionCards);
+  const alerts = useIntelligenceStore((s) => s.alerts);
+
+  const pendingCount = actionCards.filter((c) => c.status === 'pending').length + alerts.filter((a) => !a.resolved).length;
+
+  return (
+    <button
+      onClick={() => setPanelOpen(!panelOpen)}
+      className="relative flex flex-col rounded p-1.5 transition-all cursor-pointer hover:brightness-125 overflow-hidden"
+      style={{
+        background: panelOpen ? GRAD_SELECTED : GRAD_DEFAULT,
+        border: `1px solid ${panelOpen ? CARD_BORDER : DIVIDER}`,
+      }}
+    >
+      <span
+        className="text-[9px] font-bold tracking-wider uppercase leading-none self-start z-10"
+        style={{ color: TEXT_LIGHT, textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.5)' }}
+      >
+        Control
+      </span>
+      <div className="flex-1 flex items-center justify-center overflow-hidden">
+        <img
+          src="/control.png"
+          alt=""
+          className="h-[85%] w-auto object-contain"
+          style={{
+            filter: 'invert(1) brightness(0.8)',
+            mixBlendMode: 'screen',
+            opacity: panelOpen ? 0.7 : 0.4,
+          }}
+        />
+      </div>
+      {pendingCount > 0 && (
+        <span
+          className="absolute -top-1 -right-1 flex items-center justify-center min-w-[14px] h-3.5 px-0.5 rounded-full bg-[#c43a3a] text-white text-[8px] font-bold z-10"
+          style={{ boxShadow: '0 0 6px rgba(196,58,58,0.6)' }}
+        >
+          {pendingCount > 99 ? '99+' : pendingCount}
+        </span>
+      )}
+      {panelOpen && (
+        <div
+          className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full z-10"
+          style={{ backgroundColor: '#17826A' }}
+        />
+      )}
+    </button>
+  );
+}
+
 export function OverwatchDock({
   activePanel,
   onPanelSelect,
   mode,
   onModeChange,
+  onLogout,
   selectedDroneId,
   onSelectDrone,
 }: OverwatchDockProps) {
@@ -217,13 +260,9 @@ export function OverwatchDock({
   const simElapsedMs = useOverwatchStore((s) => s.simElapsedMs);
   const syncStatus = useOverwatchStore((s) => s.syncStatus);
   const activeOperator = useOverwatchStore((s) => s.activeOperator);
+  const activeMission = useOverwatchStore((s) => s.activeMission);
 
   const [activeTier, setActiveTier] = useState<Tier>('tier_1');
-
-  const selectedDrone = useMemo(
-    () => selectedDroneId ? drones.find((d) => d.id === selectedDroneId) ?? null : null,
-    [drones, selectedDroneId],
-  );
 
   const unackAlerts = alerts.filter((a) => !a.acknowledged);
   const criticalAlerts = unackAlerts.filter((a) => a.severity === 'critical');
@@ -285,6 +324,16 @@ export function OverwatchDock({
 
         <div className="w-px h-3" style={{ background: `${DIVIDER}` }} />
 
+        {activeMission && (
+          <>
+            <div className="flex items-center gap-1.5">
+              <Crosshair size={11} className="text-ow-accent" />
+              <span className="font-bold" style={{ color: '#2dd4bf' }}>{activeMission.name}</span>
+            </div>
+            <div className="w-px h-3" style={{ background: `${DIVIDER}` }} />
+          </>
+        )}
+
         {/* Sync status */}
         {syncStatus.state === 'syncing' || syncStatus.state === 'bootstrapping' ? (
           <div className="flex items-center gap-1.5" style={{ color: '#58a6ff' }}>
@@ -339,6 +388,21 @@ export function OverwatchDock({
         </button>
 
         <span style={{ color: TEXT_DIM }}>{formatElapsed(simElapsedMs)}</span>
+
+        <div className="w-px h-3" style={{ background: `${DIVIDER}` }} />
+
+        <SettingsButton
+          active={activePanel === 'settings'}
+          onClick={() => onPanelSelect('settings')}
+        />
+
+        <button
+          onClick={onLogout}
+          className="flex items-center gap-1 px-1.5 py-0.5 rounded transition-all hover:bg-[#f8514920]"
+          title="Logout"
+        >
+          <LogOut size={11} style={{ color: TEXT_DIM }} />
+        </button>
       </div>
 
       {/* Main dock */}
@@ -346,24 +410,158 @@ export function OverwatchDock({
         className="flex items-stretch gap-[3px] p-[4px] h-[160px]"
         style={{ background: DOCK_BG, borderTop: `1px solid ${DIVIDER}` }}
       >
-        {/* LEFT: Selected drone detail */}
-        <div className="w-[200px] shrink-0 rounded overflow-hidden" style={{ border: `1px solid ${DIVIDER}` }}>
-          <SelectedDroneBox
-            drone={selectedDrone}
-            onClick={() => onSelectDrone(null)}
-          />
-        </div>
+        {/* 3×2 navigation grid */}
+        <div className="flex-1 grid grid-cols-3 grid-rows-2 gap-[3px] min-w-0 mx-[3px]">
+          {/* Map — terrain-style background image */}
+          <button
+            onClick={() => onPanelSelect('map')}
+            className="relative flex flex-col rounded p-1.5 transition-all cursor-pointer hover:brightness-125 overflow-hidden"
+            style={{
+              background: activePanel === 'map' ? GRAD_SELECTED : GRAD_DEFAULT,
+              border: `1px solid ${activePanel === 'map' ? CARD_BORDER : DIVIDER}`,
+            }}
+          >
+            <img
+              src="/map.png"
+              alt=""
+              className="w-full h-full object-cover absolute inset-0 rounded"
+              style={{
+                opacity: activePanel === 'map' ? 0.45 : 0.2,
+                filter: 'brightness(0.7)',
+              }}
+            />
+            <span
+              className="text-[9px] font-bold tracking-wider uppercase leading-none self-start z-10"
+              style={{ color: TEXT_LIGHT, textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.5)' }}
+            >
+              Map
+            </span>
+            {activePanel === 'map' && (
+              <div className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full z-10" style={{ backgroundColor: '#17826A' }} />
+            )}
+          </button>
+          {/* Missions — image-based, matching mission-control */}
+          <button
+            onClick={() => onPanelSelect('missions')}
+            className="relative flex flex-col rounded p-1.5 transition-all cursor-pointer hover:brightness-125 overflow-hidden"
+            style={{
+              background: activePanel === 'missions' ? GRAD_SELECTED : GRAD_DEFAULT,
+              border: `1px solid ${activePanel === 'missions' ? CARD_BORDER : DIVIDER}`,
+            }}
+          >
+            <span
+              className="text-[9px] font-bold tracking-wider uppercase leading-none self-start z-10"
+              style={{ color: TEXT_LIGHT, textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.5)' }}
+            >
+              Missions
+            </span>
+            <div className="flex-1 flex items-center justify-center overflow-hidden">
+              <img
+                src="/missions-flag.png"
+                alt=""
+                className="h-[50%] w-auto object-contain"
+                style={{
+                  filter: 'invert(1) brightness(0.8)',
+                  mixBlendMode: 'screen',
+                  opacity: activePanel === 'missions' ? 0.7 : 0.4,
+                }}
+              />
+            </div>
+            {activePanel === 'missions' && (
+              <div className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full z-10" style={{ backgroundColor: '#17826A' }} />
+            )}
+          </button>
 
-        {/* MIDDLE: 2×4 navigation grid */}
-        <div className="flex-1 grid grid-cols-4 grid-rows-2 gap-[3px] min-w-0 mx-[3px]">
-          <NavBox label="Map" icon={Map} active={activePanel === 'map'} onClick={() => onPanelSelect('map')} />
-          <NavBox label="Coverage" icon={Crosshair} active={activePanel === 'coverage'} onClick={() => onPanelSelect('coverage')} />
-          <NavBox label="Alerts" icon={AlertTriangle} active={activePanel === 'alerts'} badge={unackAlerts.length} onClick={() => onPanelSelect('alerts')} />
-          <NavBox label="Briefing" icon={Shield} active={activePanel === 'briefing'} onClick={() => onPanelSelect('briefing')} />
-          <NavBox label="Operations" icon={Radio} active={activePanel === 'operations'} onClick={() => onPanelSelect('operations')} />
-          <NavBox label="Assets" icon={Box} active={activePanel === 'assets'} onClick={() => onPanelSelect('assets')} />
-          <NavBox label="World Model" icon={Eye} active={activePanel === 'worldmodel'} onClick={() => onPanelSelect('worldmodel')} />
-          <NavBox label="Settings" icon={Settings} active={activePanel === 'settings'} onClick={() => onPanelSelect('settings')} />
+          {/* Feed — move camera feeds to main area for larger view */}
+          <button
+            onClick={() => onPanelSelect('feed')}
+            className="relative flex flex-col rounded p-1.5 transition-all cursor-pointer hover:brightness-125 overflow-hidden"
+            style={{
+              background: activePanel === 'feed' ? GRAD_SELECTED : GRAD_DEFAULT,
+              border: `1px solid ${activePanel === 'feed' ? CARD_BORDER : DIVIDER}`,
+            }}
+          >
+            <span
+              className="text-[9px] font-bold tracking-wider uppercase leading-none self-start z-10"
+              style={{ color: TEXT_LIGHT, textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.5)' }}
+            >
+              Feed
+            </span>
+            <div className="flex-1 flex items-center justify-center">
+              <Video
+                size={24}
+                style={{
+                  color: activePanel === 'feed' ? '#17826A' : TEXT_DIM,
+                  opacity: activePanel === 'feed' ? 0.9 : 0.5,
+                }}
+              />
+            </div>
+            {activePanel === 'feed' && (
+              <div className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full z-10" style={{ backgroundColor: '#17826A' }} />
+            )}
+          </button>
+          {/* Venues — terrain-style background image */}
+          <button
+            onClick={() => onPanelSelect('assets')}
+            className="relative flex flex-col rounded p-1.5 transition-all cursor-pointer hover:brightness-125 overflow-hidden"
+            style={{
+              background: activePanel === 'assets' ? GRAD_SELECTED : GRAD_DEFAULT,
+              border: `1px solid ${activePanel === 'assets' ? CARD_BORDER : DIVIDER}`,
+            }}
+          >
+            <img
+              src="/venue-map.jpg"
+              alt=""
+              className="w-full h-full object-cover absolute inset-0 rounded"
+              style={{
+                opacity: activePanel === 'assets' ? 0.45 : 0.2,
+                filter: 'brightness(0.7)',
+              }}
+            />
+            <span
+              className="text-[9px] font-bold tracking-wider uppercase leading-none self-start z-10"
+              style={{ color: TEXT_LIGHT, textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.5)' }}
+            >
+              Venues
+            </span>
+            {activePanel === 'assets' && (
+              <div className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full z-10" style={{ backgroundColor: '#17826A' }} />
+            )}
+          </button>
+          {/* Kits — image-based, matching mission-control assets */}
+          <button
+            onClick={() => onPanelSelect('kit_mgmt')}
+            className="relative flex flex-col rounded p-1.5 transition-all cursor-pointer hover:brightness-125 overflow-hidden"
+            style={{
+              background: activePanel === 'kit_mgmt' ? GRAD_SELECTED : GRAD_DEFAULT,
+              border: `1px solid ${activePanel === 'kit_mgmt' ? CARD_BORDER : DIVIDER}`,
+            }}
+          >
+            <img
+              src="/assets.png"
+              alt=""
+              className="absolute inset-0 w-full h-full object-contain"
+              style={{
+                opacity: activePanel === 'kit_mgmt' ? 0.6 : 0.25,
+                filter: activePanel === 'kit_mgmt' ? 'brightness(1.1)' : 'saturate(0.3) brightness(0.9)',
+                mixBlendMode: 'lighten',
+              }}
+            />
+            <div
+              className="absolute inset-0 z-[1]"
+              style={{ background: 'linear-gradient(180deg, transparent 0%, rgba(12,18,25,0.85) 100%)' }}
+            />
+            <span
+              className="text-[9px] font-bold tracking-wider uppercase leading-none self-start z-10"
+              style={{ color: TEXT_LIGHT, textShadow: '0 1px 3px rgba(0,0,0,0.8), 0 0 6px rgba(0,0,0,0.5)' }}
+            >
+              Kits
+            </span>
+            {activePanel === 'kit_mgmt' && (
+              <div className="absolute bottom-1 right-1.5 w-1.5 h-1.5 rounded-full z-10" style={{ backgroundColor: '#17826A' }} />
+            )}
+          </button>
+          <IntelligenceNavBox />
         </div>
 
         {/* RIGHT: Drone grid with tier toggle */}

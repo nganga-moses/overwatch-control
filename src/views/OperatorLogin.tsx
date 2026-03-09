@@ -1,13 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { Shield, User, Lock, AlertCircle } from 'lucide-react';
+import { AlertCircle, Loader2, RefreshCw } from 'lucide-react';
+import controlLogo from '../assets/control-logo.png';
 
 const api = (window as any).electronAPI;
-
-interface Operator {
-  id: string;
-  name: string;
-  role: string;
-}
 
 interface OperatorLoginProps {
   onLogin: (operator: { id: string; name: string; role: string }) => void;
@@ -17,23 +12,44 @@ const LOCKOUT_DURATION_MS = 60_000;
 const MAX_ATTEMPTS = 3;
 
 export default function OperatorLogin({ onLogin }: OperatorLoginProps) {
-  const [operators, setOperators] = useState<Operator[]>([]);
-  const [selected, setSelected] = useState<Operator | null>(null);
+  const [step, setStep] = useState<'identify' | 'challenge'>('identify');
+  const [callSign, setCallSign] = useState('');
+  const [operator, setOperator] = useState<{ id: string; name: string; role: string } | null>(null);
   const [challengePositions, setChallengePositions] = useState<number[]>([]);
   const [digits, setDigits] = useState<string[]>(['', '', '', '', '', '']);
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMessage, setSyncMessage] = useState('');
   const [attempts, setAttempts] = useState(0);
   const [lockoutEnd, setLockoutEnd] = useState<number | null>(null);
   const [lockoutRemaining, setLockoutRemaining] = useState(0);
   const [shake, setShake] = useState(false);
   const [customerName, setCustomerName] = useState('');
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const callSignRef = useRef<HTMLInputElement>(null);
   const prevPositionsRef = useRef<number[]>([]);
 
   useEffect(() => {
-    api.auth.getOperators().then(setOperators);
     api.auth.getCustomerName().then((name: string) => setCustomerName(name ?? ''));
+    callSignRef.current?.focus();
   }, []);
+
+  async function handleSync() {
+    setSyncing(true);
+    setSyncMessage('');
+    setError('');
+    try {
+      await api.sync.triggerSync();
+      setSyncMessage('Synced');
+      setTimeout(() => setSyncMessage(''), 3000);
+    } catch {
+      setSyncMessage('Sync failed — offline?');
+      setTimeout(() => setSyncMessage(''), 5000);
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   useEffect(() => {
     if (!lockoutEnd) return;
@@ -48,18 +64,40 @@ export default function OperatorLogin({ onLogin }: OperatorLoginProps) {
     return () => clearInterval(interval);
   }, [lockoutEnd]);
 
-  async function selectOperator(op: Operator) {
-    setSelected(op);
+  async function handleIdentify(e: React.FormEvent) {
+    e.preventDefault();
+    const trimmed = callSign.trim();
+    if (!trimmed) return;
+
+    setError('');
+    setLoading(true);
+
+    try {
+      const found = await api.auth.findOperator(trimmed);
+      if (!found) {
+        setError('Operator not found');
+        return;
+      }
+
+      setOperator(found);
+      const positions = await api.auth.getChallengePositions(prevPositionsRef.current);
+      setChallengePositions(positions);
+      prevPositionsRef.current = positions;
+      setStep('challenge');
+
+      setTimeout(() => inputRefs.current[positions[0]]?.focus(), 50);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function handleBack() {
+    setStep('identify');
+    setOperator(null);
     setError('');
     setDigits(['', '', '', '', '', '']);
-    const positions = await api.auth.getChallengePositions(prevPositionsRef.current);
-    setChallengePositions(positions);
-    prevPositionsRef.current = positions;
-
-    setTimeout(() => {
-      const firstActive = positions[0];
-      inputRefs.current[firstActive]?.focus();
-    }, 50);
+    setAttempts(0);
+    setTimeout(() => callSignRef.current?.focus(), 50);
   }
 
   function handleDigitChange(position: number, value: string) {
@@ -91,7 +129,7 @@ export default function OperatorLogin({ onLogin }: OperatorLoginProps) {
   }
 
   async function handleSubmit() {
-    if (!selected) return;
+    if (!operator) return;
     if (lockoutEnd && Date.now() < lockoutEnd) return;
 
     const enteredDigits = challengePositions.map((p) => digits[p]);
@@ -100,15 +138,15 @@ export default function OperatorLogin({ onLogin }: OperatorLoginProps) {
       return;
     }
 
-    const valid = await api.auth.validatePin(selected.id, challengePositions, enteredDigits);
+    const valid = await api.auth.validatePin(operator.id, challengePositions, enteredDigits);
 
     if (valid) {
       await api.auth.writeAuditLog({
-        operatorId: selected.id,
+        operatorId: operator.id,
         action: 'login',
         detail: `Partial PIN challenge positions: ${challengePositions.map((p) => p + 1).join(', ')}`,
       });
-      onLogin({ id: selected.id, name: selected.name, role: selected.role });
+      onLogin({ id: operator.id, name: operator.name, role: operator.role });
     } else {
       const newAttempts = attempts + 1;
       setAttempts(newAttempts);
@@ -132,126 +170,131 @@ export default function OperatorLogin({ onLogin }: OperatorLoginProps) {
 
   const isLockedOut = lockoutEnd !== null && Date.now() < lockoutEnd;
 
-  const roleBadge = (role: string) => {
-    const colors: Record<string, string> = {
-      admin: 'bg-amber-400/20 text-amber-400',
-      operator: 'bg-teal-400/20 text-teal-400',
-      viewer: 'bg-gray-400/20 text-gray-400',
-    };
-    return colors[role] ?? colors.operator;
-  };
-
   return (
-    <div className="min-h-screen flex bg-[#0d1117]">
-      {/* Left: operator list */}
-      <div className="w-72 bg-[#161b22] border-r border-[#30363d] flex flex-col">
-        <div className="p-4 border-b border-[#30363d]">
-          <div className="flex items-center gap-2 mb-1">
-            <Shield className="w-5 h-5 text-teal-400" />
-            <span className="font-semibold text-white text-sm">Overwatch Control</span>
-          </div>
-          {customerName && <p className="text-xs text-gray-500 ml-7">{customerName}</p>}
+    <div className="min-h-screen flex items-center justify-center bg-[#0d1117]">
+      <div className="w-full max-w-sm space-y-6">
+        <div className="text-center">
+          <img src={controlLogo} alt="Overwatch Control" className="h-16 mx-auto mb-2" />
+          {customerName && <p className="text-xs text-gray-500">{customerName}</p>}
         </div>
 
-        <div className="flex-1 overflow-y-auto p-2 space-y-1">
-          {operators.map((op) => (
-            <button
-              key={op.id}
-              onClick={() => !isLockedOut && selectOperator(op)}
-              disabled={isLockedOut}
-              className={`w-full text-left px-3 py-2.5 rounded transition flex items-center gap-2 ${
-                selected?.id === op.id
-                  ? 'bg-teal-400/10 border border-teal-400/30'
-                  : 'hover:bg-[#1c2128] border border-transparent'
-              } ${isLockedOut ? 'opacity-50 cursor-not-allowed' : ''}`}
-            >
-              <User className="w-4 h-4 text-gray-400 shrink-0" />
-              <div className="flex-1 min-w-0">
-                <div className="text-sm text-white truncate">{op.name}</div>
-                <span className={`text-[10px] px-1.5 py-0.5 rounded ${roleBadge(op.role)}`}>
-                  {op.role}
-                </span>
-              </div>
-            </button>
-          ))}
+        <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-6 space-y-5">
+          {error && (
+            <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded px-3 py-2 text-sm">
+              <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>{error}</span>
+            </div>
+          )}
 
-          {operators.length === 0 && (
-            <p className="text-gray-600 text-xs text-center py-4">No operators found</p>
+          {step === 'identify' && (
+            <form onSubmit={handleIdentify} className="space-y-4">
+              <div className="text-center">
+                <h2 className="text-base font-semibold text-white">Operator Sign In</h2>
+                <p className="text-gray-400 text-sm mt-1">Enter your call sign</p>
+              </div>
+
+              <input
+                ref={callSignRef}
+                type="text"
+                value={callSign}
+                onChange={(e) => setCallSign(e.target.value)}
+                placeholder="Call sign"
+                autoFocus
+                className="w-full px-4 py-3 bg-[#1c2128] border border-[#30363d] rounded text-white text-sm placeholder:text-gray-600 focus:outline-none focus:border-teal-400"
+              />
+
+              <button
+                type="submit"
+                disabled={!callSign.trim() || loading}
+                className="w-full py-2.5 bg-teal-400 text-[#0d1117] font-medium rounded text-sm hover:bg-teal-300 transition disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-1.5"
+              >
+                {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+                {loading ? 'Looking up…' : 'Continue'}
+              </button>
+            </form>
+          )}
+
+          {step === 'challenge' && operator && (
+            <div className={`space-y-5 ${shake ? 'animate-[shake_0.5s_ease-in-out]' : ''}`}>
+              <div className="text-center">
+                <h2 className="text-base font-semibold text-white">{operator.name}</h2>
+                <p className="text-gray-400 text-sm mt-1">
+                  Enter digits{' '}
+                  <span className="text-teal-400 font-mono">
+                    {challengePositions.map((p) => p + 1).join(', ')}
+                  </span>{' '}
+                  of your PIN
+                </p>
+              </div>
+
+              {isLockedOut && (
+                <div className="text-center text-sm text-gray-500">
+                  Retry in{' '}
+                  <span className="text-amber-400 font-mono">
+                    {Math.ceil(lockoutRemaining / 1000)}s
+                  </span>
+                </div>
+              )}
+
+              <div className="flex justify-center gap-2">
+                {[0, 1, 2, 3, 4, 5].map((pos) => {
+                  const isActive = challengePositions.includes(pos);
+                  return (
+                    <div key={pos} className="flex flex-col items-center gap-1">
+                      <span className="text-[10px] text-gray-600 font-mono">{pos + 1}</span>
+                      <input
+                        ref={(el) => { inputRefs.current[pos] = el; }}
+                        type="password"
+                        maxLength={1}
+                        value={digits[pos]}
+                        onChange={(e) => handleDigitChange(pos, e.target.value)}
+                        onKeyDown={(e) => handleKeyDown(pos, e)}
+                        disabled={!isActive || isLockedOut}
+                        className={`w-11 h-14 text-center text-xl font-mono rounded border transition ${
+                          isActive
+                            ? 'bg-[#1c2128] border-teal-400/40 text-white focus:border-teal-400 focus:outline-none cursor-text'
+                            : 'bg-[#0d1117] border-[#1c2128] text-gray-700 cursor-not-allowed'
+                        } ${isLockedOut ? 'opacity-40' : ''}`}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={handleSubmit}
+                disabled={isLockedOut}
+                className="w-full py-2.5 bg-teal-400 text-[#0d1117] font-medium rounded text-sm hover:bg-teal-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Sign In
+              </button>
+
+              <button
+                onClick={handleBack}
+                disabled={isLockedOut}
+                className="w-full text-sm text-gray-500 hover:text-gray-300 transition disabled:opacity-40"
+              >
+                Not you? Go back
+              </button>
+            </div>
           )}
         </div>
-      </div>
 
-      {/* Right: PIN challenge */}
-      <div className="flex-1 flex items-center justify-center">
-        {!selected ? (
-          <div className="text-center space-y-3">
-            <Lock className="w-12 h-12 text-gray-700 mx-auto" />
-            <p className="text-gray-500 text-sm">Select an operator to sign in</p>
-          </div>
-        ) : (
-          <div className={`w-full max-w-sm space-y-6 ${shake ? 'animate-[shake_0.5s_ease-in-out]' : ''}`}>
-            <div className="text-center">
-              <h2 className="text-lg font-semibold text-white">{selected.name}</h2>
-              <p className="text-gray-400 text-sm mt-1">
-                Enter digits{' '}
-                <span className="text-teal-400 font-mono">
-                  {challengePositions.map((p) => p + 1).join(', ')}
-                </span>{' '}
-                of your PIN
-              </p>
-            </div>
-
-            {error && (
-              <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 text-red-400 rounded px-3 py-2 text-sm">
-                <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
-                <span>{error}</span>
-              </div>
-            )}
-
-            {isLockedOut && (
-              <div className="text-center text-sm text-gray-500">
-                Retry in{' '}
-                <span className="text-amber-400 font-mono">
-                  {Math.ceil(lockoutRemaining / 1000)}s
-                </span>
-              </div>
-            )}
-
-            {/* PIN boxes */}
-            <div className="flex justify-center gap-2">
-              {[0, 1, 2, 3, 4, 5].map((pos) => {
-                const isActive = challengePositions.includes(pos);
-                return (
-                  <div key={pos} className="flex flex-col items-center gap-1">
-                    <span className="text-[10px] text-gray-600 font-mono">{pos + 1}</span>
-                    <input
-                      ref={(el) => { inputRefs.current[pos] = el; }}
-                      type="password"
-                      maxLength={1}
-                      value={digits[pos]}
-                      onChange={(e) => handleDigitChange(pos, e.target.value)}
-                      onKeyDown={(e) => handleKeyDown(pos, e)}
-                      disabled={!isActive || isLockedOut}
-                      className={`w-11 h-14 text-center text-xl font-mono rounded border transition ${
-                        isActive
-                          ? 'bg-[#1c2128] border-teal-400/40 text-white focus:border-teal-400 focus:outline-none cursor-text'
-                          : 'bg-[#0d1117] border-[#1c2128] text-gray-700 cursor-not-allowed'
-                      } ${isLockedOut ? 'opacity-40' : ''}`}
-                    />
-                  </div>
-                );
-              })}
-            </div>
-
-            <button
-              onClick={handleSubmit}
-              disabled={isLockedOut}
-              className="w-full py-2.5 bg-teal-400 text-[#0d1117] font-medium rounded text-sm hover:bg-teal-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              Sign In
-            </button>
-          </div>
-        )}
+        <div className="flex items-center justify-center gap-2 text-xs">
+          <button
+            onClick={handleSync}
+            disabled={syncing}
+            className="text-gray-500 hover:text-teal-400 transition disabled:opacity-50 inline-flex items-center gap-1"
+          >
+            <RefreshCw className={`w-3 h-3 ${syncing ? 'animate-spin' : ''}`} />
+            {syncing ? 'Syncing…' : 'Sync'}
+          </button>
+          {syncMessage && (
+            <span className={syncMessage === 'Synced' ? 'text-teal-400' : 'text-amber-400'}>
+              {syncMessage}
+            </span>
+          )}
+        </div>
       </div>
 
       <style>{`

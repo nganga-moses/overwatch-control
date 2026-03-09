@@ -5,6 +5,8 @@ export type OWMessageType =
   | 'drone:stateChange'
   | 'drone:alert'
   | 'drone:perchResult'
+  | 'drone:indoorTelemetry'
+  | 'drone:slamMapUpdate'
   | 'principal:positionUpdate'
   | 'principal:zoneTransition'
   | 'coverage:update'
@@ -69,6 +71,135 @@ export interface DroneCommand {
   droneId: string;
   targetPerchPointId?: string;
   targetZoneId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Indoor wire protocol types — matches fireflyos-squad ground_station_link.rs
+// ---------------------------------------------------------------------------
+
+/** Inbound from drone: indoor positioning and SLAM telemetry. */
+export interface IndoorTelemetryPayload {
+  droneId: string;
+  positionSource: 'gps' | 'slam' | 'dead_reckoning';
+  slamQuality: number;
+  slamDriftM: number;
+  zoneId: string | null;
+  perchState: string | null;
+  trackedFeatures: number;
+  position: [number, number, number];
+  confidence: number;
+}
+
+/** Inbound from drone: SLAM map point cloud delta for venue model merge. */
+export interface SlamMapUpdatePayload {
+  droneId: string;
+  mapPointCount: number;
+  newPoints: Array<{ x: number; y: number; z: number; observations: number }>;
+  deletedPointIds: string[];
+}
+
+/** Outbound to drone: compact venue model pushed on connection. */
+export interface VenueModelPayload {
+  venueId: string;
+  venueName: string;
+  zones: VenueZoneCompact[];
+  connections: ZoneConnectionCompact[];
+  perchPoints: PerchPointCompact[];
+}
+
+export interface VenueZoneCompact {
+  id: string;
+  name: string;
+  polygon: [number, number][];
+  environment: string;
+  floor: number;
+  tierRequirement: string;
+}
+
+export interface ZoneConnectionCompact {
+  zoneA: string;
+  zoneB: string;
+  connectionType: string;
+  widthM: number;
+  heightM: number;
+  isAccessible: boolean;
+}
+
+export interface PerchPointCompact {
+  id: string;
+  zoneId: string;
+  position: [number, number, number];
+  surfaceClass: string;
+  attachmentMethod: string;
+  headingDeg: number | null;
+  fovCoverageDeg: number;
+}
+
+/** Outbound to drone: perch at a specific point. */
+export interface PerchCommandPayload {
+  targetPerchId: string;
+  zoneId: string;
+  position: [number, number, number];
+  surfaceClass: string;
+  headingDeg: number | null;
+}
+
+/** Outbound to drone: reposition to a new zone/perch. */
+export interface RepositionCommandPayload {
+  targetZoneId: string;
+  targetPerchId: string | null;
+  reason: string;
+  urgency: 'routine' | 'urgent' | 'emergency';
+}
+
+// ---------------------------------------------------------------------------
+// GS wire protocol types — translation layer for SwarmServer
+// ---------------------------------------------------------------------------
+
+/** GS inbound message types (from fireflyos-squad) */
+export type GSInboundType =
+  | 'Heartbeat'
+  | 'AggregatedSurprise'
+  | 'SafetyEvent'
+  | 'LeaderChange'
+  | 'IndoorTelemetry'
+  | 'SlamMapUpdate'
+  | 'StreamStarted'
+  | 'StreamStopped'
+  | 'StreamError';
+
+export interface GSHeartbeat {
+  leader_id: number;
+  leader_callsign: string;
+  member_count: number;
+  uptime_s: number;
+  mesh_quality: number;
+  swarm_id?: string;
+}
+
+/** GS outbound message types (to fireflyos-squad) */
+export type GSOutboundType =
+  | 'HeartbeatAck'
+  | 'SwarmCommand'
+  | 'MissionArtifact'
+  | 'VenueModel'
+  | 'PerchCommand'
+  | 'RepositionCommand'
+  | 'StartStream'
+  | 'StopStream'
+  | 'SetBitrate'
+  | 'SetResolution';
+
+/** Connection state for swarm sessions. */
+export type ConnectionState = 'connecting' | 'connected' | 'disconnected' | 'error';
+
+export interface SwarmConnectionStatus {
+  swarmId: string;
+  state: ConnectionState;
+  leaderCallsign: string | null;
+  memberCount: number;
+  meshQuality: number;
+  connectedAt: string | null;
 }
 
 export function createMessage<T>(

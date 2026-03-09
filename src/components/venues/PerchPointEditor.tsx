@@ -38,7 +38,7 @@ export function PerchPointEditor({ zoneId, point, onSave, onCancel, onDelete }: 
     failureModes: Record<string, number>;
   } | null>(null);
 
-  const isNew = !point;
+  const isNew = !point || !point.id;
 
   useEffect(() => {
     if (point?.id) {
@@ -61,7 +61,16 @@ export function PerchPointEditor({ zoneId, point, onSave, onCancel, onDelete }: 
           suitabilityScore: suitability,
         });
       } else {
-        // No specific updatePerchPoint IPC yet, but API exists
+        await window.electronAPI.venues.updatePerchPoint(point!.id, {
+          name: name.trim(),
+          surfaceType,
+          positionLat: lat,
+          positionLng: lng,
+          positionAlt: alt,
+          headingDeg: heading,
+          fovCoverageDeg: fov,
+          suitabilityScore: suitability,
+        });
       }
       onSave();
     } catch (err) {

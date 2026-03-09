@@ -112,7 +112,7 @@ export function VenueLibraryView() {
       </div>
 
       {/* Right: detail */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-w-0 relative">
         {selectedVenue ? (
           <VenueDetail venue={selectedVenue} onUpdate={loadVenues} />
         ) : (

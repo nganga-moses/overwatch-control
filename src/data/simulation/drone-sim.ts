@@ -72,6 +72,7 @@ export function tickDrone(
   drone: SimDrone,
   venue: SimVenue,
   dtMs: number,
+  missionActive = true,
 ): SimDrone {
   const updated = { ...drone };
   const dtSec = dtMs / 1000;
@@ -92,6 +93,7 @@ export function tickDrone(
 
   switch (updated.perchState) {
     case 'sleeping': {
+      if (!missionActive) break;
       if (updated.batteryPercent > 20 && Math.random() < 0.02) {
         const eligiblePoints = getEligiblePerchPoints(updated, venue);
         if (eligiblePoints.length > 0) {

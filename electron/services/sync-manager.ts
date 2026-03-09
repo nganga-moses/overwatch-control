@@ -161,6 +161,36 @@ export class SyncManager extends EventEmitter {
     return resp.json();
   }
 
+  async fetchAllKits(): Promise<{ kits: number; drones: number }> {
+    const resp = await this.apiFetch('/api/v1/kits?limit=500');
+    if (!resp.ok) {
+      throw new Error(`Kit list fetch failed: ${resp.status} ${resp.statusText}`);
+    }
+
+    const rawKits = await resp.json();
+    const DRONE_DEFAULTS: Record<string, unknown> = {
+      status: 'idle',
+      battery_percent: 100.0,
+      perch_state: 'sleeping',
+      flight_hours: 0.0,
+      total_perches: 0,
+    };
+    const drones = rawKits.flatMap((k: any) =>
+      (k.drones ?? []).map((d: any) => {
+        const merged = { ...d, kit_id: k.id };
+        for (const [key, def] of Object.entries(DRONE_DEFAULTS)) {
+          if (merged[key] == null) merged[key] = def;
+        }
+        if (!merged.callsign) merged.callsign = merged.serial;
+        return merged;
+      }),
+    );
+    const kits = rawKits.map(({ drones: _d, ...rest }: any) => rest);
+    this.db.applyBootstrapData({ kits, drones });
+    console.info('[SyncManager] Fetched %d kits, %d drones from cloud', kits.length, drones.length);
+    return { kits: kits.length, drones: drones.length };
+  }
+
   // ---------------------------------------------------------------------------
   // Sync cycle
   // ---------------------------------------------------------------------------
@@ -197,6 +227,10 @@ export class SyncManager extends EventEmitter {
     this.persistStatus();
   }
 
+  private static readonly LOCAL_TO_CLOUD_TABLE: Record<string, string> = {
+    drone_profiles: 'drones',
+  };
+
   private async pushDeltas(): Promise<void> {
     const unsyncedBatches = this.db.getAllUnsyncedEntities();
     const unsyncedAlerts = this.db.getUnsyncedAlerts();
@@ -206,9 +240,10 @@ export class SyncManager extends EventEmitter {
     const entities: { table: string; id: string; data: Record<string, any>; cloud_version: number | null }[] = [];
 
     for (const batch of unsyncedBatches) {
+      const cloudTable = SyncManager.LOCAL_TO_CLOUD_TABLE[batch.table] ?? batch.table;
       for (const row of batch.rows) {
         entities.push({
-          table: batch.table,
+          table: cloudTable,
           id: row.id,
           data: row,
           cloud_version: row.cloud_version ?? null,

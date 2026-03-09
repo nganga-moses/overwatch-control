@@ -16,8 +16,17 @@ export interface ActiveOperator {
   role: string;
 }
 
+export interface ActiveMission {
+  id: string;
+  name: string;
+  status: string;
+  venueId: string;
+  environment: string | null;
+}
+
 export interface OverwatchState {
   activeOperator: ActiveOperator | null;
+  activeMission: ActiveMission | null;
   drones: DroneProfile[];
   venue: {
     id: string;
@@ -42,6 +51,7 @@ export interface OverwatchState {
   simElapsedMs: number;
 
   setActiveOperator: (op: ActiveOperator | null) => void;
+  setActiveMission: (mission: ActiveMission | null) => void;
   setDrones: (drones: DroneProfile[]) => void;
   setVenue: (venue: OverwatchState['venue']) => void;
   setPrincipal: (principal: Principal | null) => void;
@@ -60,6 +70,7 @@ export interface OverwatchState {
 
 export const useOverwatchStore = create<OverwatchState>((set, get) => ({
   activeOperator: null,
+  activeMission: null,
   drones: [],
   venue: null,
   principal: null,
@@ -78,6 +89,7 @@ export const useOverwatchStore = create<OverwatchState>((set, get) => ({
   simElapsedMs: 0,
 
   setActiveOperator: (op) => set({ activeOperator: op }),
+  setActiveMission: (mission) => set({ activeMission: mission }),
   setDrones: (drones) => set({ drones }),
   setVenue: (venue) => set({ venue }),
   setPrincipal: (principal) => set({ principal }),

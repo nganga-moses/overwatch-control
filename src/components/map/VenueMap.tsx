@@ -215,7 +215,7 @@ export function VenueMap() {
   }, [principal]);
 
   return (
-    <div className="relative w-full h-full">
+    <div className="absolute inset-0">
       <div ref={mapContainer} className="w-full h-full" />
 
       {/* Floor selector */}

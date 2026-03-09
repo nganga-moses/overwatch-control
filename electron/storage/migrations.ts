@@ -373,4 +373,217 @@ export const migrations: Migration[] = [
       );
     `,
   },
+  {
+    version: 5,
+    description: 'Add missing timestamp columns to zone_connections',
+    sql: `
+      ALTER TABLE zone_connections ADD COLUMN created_at TEXT NOT NULL DEFAULT (datetime('now'));
+      ALTER TABLE zone_connections ADD COLUMN updated_at TEXT NOT NULL DEFAULT (datetime('now'));
+    `,
+  },
+  {
+    version: 6,
+    description: 'Per-floor plan images for multi-page PDFs',
+    sql: `
+      CREATE TABLE IF NOT EXISTS floor_plan_images (
+        id TEXT PRIMARY KEY,
+        venue_id TEXT NOT NULL REFERENCES venues(id) ON DELETE CASCADE,
+        floor_level INTEGER NOT NULL,
+        blob_key TEXT NOT NULL,
+        local_path TEXT,
+        cached INTEGER NOT NULL DEFAULT 0,
+        cached_at TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        UNIQUE(venue_id, floor_level)
+      );
+    `,
+  },
+  {
+    version: 7,
+    description: 'Phase 4 – expanded operations, principal ReID, agent sync, weather ops',
+    sql: `
+      -- 1. Recreate operations table with expanded columns
+      CREATE TABLE operations_v2 (
+        id TEXT PRIMARY KEY,
+        venue_id TEXT NOT NULL REFERENCES venues(id),
+        name TEXT NOT NULL,
+        type TEXT,
+        status TEXT NOT NULL DEFAULT 'planning'
+          CHECK (status IN ('planning', 'briefing', 'deploying', 'active', 'repositioning', 'paused', 'recovering', 'completed', 'aborted')),
+        environment TEXT,
+        principal_id TEXT,
+        assigned_kit_ids TEXT,
+        planned_start TEXT,
+        planned_end TEXT,
+        actual_start TEXT,
+        actual_end TEXT,
+        active_drones INTEGER NOT NULL DEFAULT 0,
+        total_alerts INTEGER NOT NULL DEFAULT 0,
+        drone_count_tier1 INTEGER,
+        drone_count_tier2 INTEGER,
+        deploy_time_s REAL,
+        total_repositions INTEGER DEFAULT 0,
+        coverage_score_avg REAL,
+        alert_summary_json TEXT,
+        briefing_json TEXT,
+        post_op_json TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        synced_at TEXT,
+        cloud_version INTEGER NOT NULL DEFAULT 0
+      );
+
+      INSERT INTO operations_v2 (
+        id, venue_id, name, status, principal_id,
+        assigned_kit_ids,
+        actual_start, actual_end,
+        active_drones, total_alerts, notes,
+        created_at, updated_at, synced_at, cloud_version
+      )
+      SELECT
+        id, venue_id, name, status, principal_id,
+        CASE WHEN kit_id IS NOT NULL THEN json_array(kit_id) ELSE NULL END,
+        started_at, ended_at,
+        active_drones, total_alerts, notes,
+        created_at, updated_at, synced_at, cloud_version
+      FROM operations;
+
+      DROP TABLE operations;
+      ALTER TABLE operations_v2 RENAME TO operations;
+
+      CREATE INDEX IF NOT EXISTS idx_operations_venue ON operations(venue_id);
+      CREATE INDEX IF NOT EXISTS idx_operations_status ON operations(status);
+
+      -- 2. Add ReID columns to principals
+      ALTER TABLE principals ADD COLUMN reid_embedding BLOB;
+      ALTER TABLE principals ADD COLUMN reid_updated_at TEXT;
+      ALTER TABLE principals ADD COLUMN operation_count INTEGER NOT NULL DEFAULT 0;
+
+      -- 3. Add sync columns to protection_agents
+      ALTER TABLE protection_agents ADD COLUMN notes TEXT;
+      ALTER TABLE protection_agents ADD COLUMN synced_at TEXT;
+      ALTER TABLE protection_agents ADD COLUMN cloud_version INTEGER NOT NULL DEFAULT 0;
+
+      -- 4. Add weather_observations columns
+      ALTER TABLE weather_observations ADD COLUMN operation_id TEXT REFERENCES operations(id);
+      ALTER TABLE weather_observations ADD COLUMN wind_gust_ms REAL;
+      ALTER TABLE weather_observations ADD COLUMN source TEXT;
+    `,
+  },
+  {
+    version: 8,
+    description: 'Make operations.venue_id nullable for draft missions',
+    sql: `
+      CREATE TABLE operations_v3 (
+        id TEXT PRIMARY KEY,
+        venue_id TEXT REFERENCES venues(id),
+        name TEXT NOT NULL,
+        type TEXT,
+        status TEXT NOT NULL DEFAULT 'planning'
+          CHECK (status IN ('planning', 'briefing', 'deploying', 'active', 'repositioning', 'paused', 'recovering', 'completed', 'aborted')),
+        environment TEXT,
+        principal_id TEXT,
+        assigned_kit_ids TEXT,
+        planned_start TEXT,
+        planned_end TEXT,
+        actual_start TEXT,
+        actual_end TEXT,
+        active_drones INTEGER NOT NULL DEFAULT 0,
+        total_alerts INTEGER NOT NULL DEFAULT 0,
+        drone_count_tier1 INTEGER,
+        drone_count_tier2 INTEGER,
+        deploy_time_s REAL,
+        total_repositions INTEGER DEFAULT 0,
+        coverage_score_avg REAL,
+        alert_summary_json TEXT,
+        briefing_json TEXT,
+        post_op_json TEXT,
+        notes TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+        synced_at TEXT,
+        cloud_version INTEGER NOT NULL DEFAULT 0
+      );
+
+      INSERT INTO operations_v3 SELECT * FROM operations;
+      DROP TABLE operations;
+      ALTER TABLE operations_v3 RENAME TO operations;
+
+      CREATE INDEX IF NOT EXISTS idx_operations_venue ON operations(venue_id);
+      CREATE INDEX IF NOT EXISTS idx_operations_status ON operations(status);
+    `,
+  },
+  {
+    version: 9,
+    description: 'Add drone health and maintenance columns',
+    sql: `
+      ALTER TABLE drone_profiles ADD COLUMN hardware_class TEXT;
+      ALTER TABLE drone_profiles ADD COLUMN spine_array_condition TEXT DEFAULT 'good';
+      ALTER TABLE drone_profiles ADD COLUMN suction_pump_condition TEXT DEFAULT 'good';
+      ALTER TABLE drone_profiles ADD COLUMN landing_gear_condition TEXT;
+      ALTER TABLE drone_profiles ADD COLUMN total_flight_hours REAL DEFAULT 0.0;
+      ALTER TABLE drone_profiles ADD COLUMN total_perch_hours REAL DEFAULT 0.0;
+      ALTER TABLE drone_profiles ADD COLUMN total_attachments INTEGER DEFAULT 0;
+      ALTER TABLE drone_profiles ADD COLUMN attachment_success_rate REAL;
+      ALTER TABLE drone_profiles ADD COLUMN battery_cycles INTEGER DEFAULT 0;
+      ALTER TABLE drone_profiles ADD COLUMN battery_health_pct REAL;
+      ALTER TABLE drone_profiles ADD COLUMN surface_performance TEXT;
+      ALTER TABLE drone_profiles ADD COLUMN reliability_score REAL;
+      ALTER TABLE drone_profiles ADD COLUMN last_deployed_at TEXT;
+      ALTER TABLE drone_profiles ADD COLUMN last_maintained_at TEXT;
+    `,
+  },
+  {
+    version: 10,
+    description: 'Intelligence & orchestrator schema',
+    sql: `
+      ALTER TABLE alerts ADD COLUMN type TEXT;
+      ALTER TABLE alerts ADD COLUMN confidence REAL;
+      ALTER TABLE alerts ADD COLUMN drone_tier TEXT;
+      ALTER TABLE alerts ADD COLUMN detection_data_json TEXT;
+      ALTER TABLE alerts ADD COLUMN operator_validated INTEGER;
+      ALTER TABLE alerts ADD COLUMN operator_notes TEXT;
+
+      CREATE TABLE IF NOT EXISTS orchestrator_decisions (
+        id TEXT PRIMARY KEY,
+        operation_id TEXT,
+        event_type TEXT NOT NULL,
+        action TEXT NOT NULL,
+        reasoning TEXT,
+        confidence REAL DEFAULT 0.5,
+        autonomy_tier TEXT NOT NULL DEFAULT 'confirm' CHECK (autonomy_tier IN ('auto', 'suggest', 'confirm')),
+        status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'executed', 'expired')),
+        parameters_json TEXT,
+        drone_id TEXT,
+        zone_id TEXT,
+        created_at TEXT NOT NULL DEFAULT (datetime('now')),
+        executed_at TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_decisions_operation ON orchestrator_decisions(operation_id);
+      CREATE INDEX IF NOT EXISTS idx_decisions_status ON orchestrator_decisions(status);
+
+      CREATE TABLE IF NOT EXISTS orchestrator_state (
+        id TEXT PRIMARY KEY,
+        model_json TEXT NOT NULL,
+        session_id TEXT NOT NULL,
+        updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+
+      CREATE TABLE IF NOT EXISTS orchestrator_transcript (
+        id TEXT PRIMARY KEY,
+        session_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        source TEXT NOT NULL,
+        content TEXT NOT NULL,
+        intent_class TEXT,
+        action_card_json TEXT,
+        structured_data TEXT,
+        significance TEXT,
+        wm_node_ids TEXT,
+        voice INTEGER DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_transcript_session ON orchestrator_transcript(session_id);
+    `,
+  },
 ];

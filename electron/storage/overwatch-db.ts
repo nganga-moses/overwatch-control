@@ -188,6 +188,50 @@ export class OverwatchDB {
   }
 
   // ---------------------------------------------------------------------------
+  // Floor Plan Images (per-floor)
+  // ---------------------------------------------------------------------------
+
+  upsertFloorPlanImage(venueId: string, floorLevel: number, blobKey: string): void {
+    this.db.prepare(
+      `INSERT INTO floor_plan_images (id, venue_id, floor_level, blob_key)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(venue_id, floor_level) DO UPDATE
+       SET blob_key = excluded.blob_key, cached = 0, local_path = NULL, cached_at = NULL`
+    ).run(generateId(), venueId, floorLevel, blobKey);
+  }
+
+  getFloorPlanImages(venueId: string): any[] {
+    return this.db.prepare(
+      'SELECT * FROM floor_plan_images WHERE venue_id = ? ORDER BY floor_level'
+    ).all(venueId);
+  }
+
+  getFloorPlanImage(venueId: string, floorLevel: number): any {
+    return this.db.prepare(
+      'SELECT * FROM floor_plan_images WHERE venue_id = ? AND floor_level = ?'
+    ).get(venueId, floorLevel);
+  }
+
+  updateFloorPlanImage(venueId: string, floorLevel: number, patch: {
+    localPath?: string | null;
+    cached?: number;
+    cachedAt?: string | null;
+  }): void {
+    const sets: string[] = [];
+    const params: any[] = [];
+    if (patch.localPath !== undefined) { sets.push('local_path = ?'); params.push(patch.localPath); }
+    if (patch.cached !== undefined) { sets.push('cached = ?'); params.push(patch.cached); }
+    if (patch.cachedAt !== undefined) { sets.push('cached_at = ?'); params.push(patch.cachedAt); }
+    if (sets.length === 0) return;
+    params.push(venueId, floorLevel);
+    this.db.prepare(`UPDATE floor_plan_images SET ${sets.join(', ')} WHERE venue_id = ? AND floor_level = ?`).run(...params);
+  }
+
+  deleteFloorPlanImages(venueId: string): void {
+    this.db.prepare('DELETE FROM floor_plan_images WHERE venue_id = ?').run(venueId);
+  }
+
+  // ---------------------------------------------------------------------------
   // Surface Assessments
   // ---------------------------------------------------------------------------
 
@@ -416,6 +460,25 @@ export class OverwatchDB {
       .all(zoneId);
   }
 
+  updatePerchPoint(id: string, patch: Record<string, unknown>): void {
+    const existing = this.db.prepare('SELECT * FROM perch_points WHERE id = ?').get(id) as any;
+    if (!existing) return;
+
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    for (const [key, val] of Object.entries(patch)) {
+      const col = key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+      updates.push(`${col} = ?`);
+      values.push(val);
+    }
+
+    if (updates.length === 0) return;
+    updates.push("updated_at = datetime('now')");
+    values.push(id);
+    this.db.prepare(`UPDATE perch_points SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  }
+
   deletePerchPoint(id: string): void {
     this.db.prepare('DELETE FROM perch_points WHERE id = ?').run(id);
   }
@@ -469,7 +532,21 @@ export class OverwatchDB {
 
   queryKits(): any[] {
     return this.db
-      .prepare('SELECT * FROM kits ORDER BY updated_at DESC')
+      .prepare(`
+        SELECT k.*,
+          COALESCE(d.t1, 0) AS tier1_count,
+          COALESCE(d.t2, 0) AS tier2_count,
+          COALESCE(d.t1, 0) + COALESCE(d.t2, 0) AS total_drones
+        FROM kits k
+        LEFT JOIN (
+          SELECT kit_id,
+            SUM(CASE WHEN tier = 'tier_1' THEN 1 ELSE 0 END) AS t1,
+            SUM(CASE WHEN tier = 'tier_2' THEN 1 ELSE 0 END) AS t2
+          FROM drone_profiles
+          GROUP BY kit_id
+        ) d ON d.kit_id = k.id
+        ORDER BY k.updated_at DESC
+      `)
       .all();
   }
 
@@ -811,6 +888,12 @@ export class OverwatchDB {
     return this.db.prepare('SELECT * FROM operators WHERE id = ?').get(id);
   }
 
+  getOperatorByName(name: string): any {
+    return this.db
+      .prepare('SELECT * FROM operators WHERE LOWER(name) = LOWER(?) AND is_active = 1')
+      .get(name);
+  }
+
   // ---------------------------------------------------------------------------
   // Audit Log
   // ---------------------------------------------------------------------------
@@ -836,12 +919,240 @@ export class OverwatchDB {
   }
 
   // ---------------------------------------------------------------------------
+  // Operations
+  // ---------------------------------------------------------------------------
+
+  writeOperation(op: {
+    id?: string;
+    venueId?: string | null;
+    name: string;
+    type?: string;
+    status?: string;
+    environment?: string;
+    principalId?: string | null;
+    assignedKitIds?: string[];
+    plannedStart?: string | null;
+    plannedEnd?: string | null;
+    notes?: string | null;
+  }): string {
+    const id = op.id ?? generateId();
+    this.db
+      .prepare(
+        `INSERT INTO operations (id, venue_id, name, type, status, environment, principal_id,
+          assigned_kit_ids, planned_start, planned_end, notes)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           venue_id=excluded.venue_id, name=excluded.name, type=excluded.type,
+           status=excluded.status, environment=excluded.environment,
+           principal_id=excluded.principal_id, assigned_kit_ids=excluded.assigned_kit_ids,
+           planned_start=excluded.planned_start, planned_end=excluded.planned_end,
+           notes=excluded.notes, updated_at=datetime('now')`,
+      )
+      .run(
+        id, op.venueId || null, op.name, op.type ?? null, op.status ?? 'planning',
+        op.environment ?? null, op.principalId ?? null,
+        op.assignedKitIds ? JSON.stringify(op.assignedKitIds) : null,
+        op.plannedStart ?? null, op.plannedEnd ?? null, op.notes ?? null,
+      );
+    return id;
+  }
+
+  getOperation(id: string): any {
+    return this.db.prepare('SELECT * FROM operations WHERE id = ?').get(id);
+  }
+
+  queryOperations(filters?: { status?: string; venueId?: string; active?: boolean }): any[] {
+    let sql = 'SELECT * FROM operations WHERE 1=1';
+    const params: any[] = [];
+
+    if (filters?.status) {
+      sql += ' AND status = ?';
+      params.push(filters.status);
+    }
+    if (filters?.venueId) {
+      sql += ' AND venue_id = ?';
+      params.push(filters.venueId);
+    }
+    if (filters?.active) {
+      sql += " AND status IN ('deploying', 'active', 'repositioning', 'paused', 'recovering')";
+    }
+
+    sql += ' ORDER BY updated_at DESC';
+    return this.db.prepare(sql).all(...params);
+  }
+
+  updateOperation(id: string, patch: Record<string, unknown>): void {
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    for (const [key, val] of Object.entries(patch)) {
+      const col = key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+      if (key === 'assignedKitIds') {
+        updates.push('assigned_kit_ids = ?');
+        values.push(Array.isArray(val) ? JSON.stringify(val) : val);
+      } else if (key === 'briefingJson' || key === 'postOpJson' || key === 'alertSummaryJson') {
+        updates.push(`${col} = ?`);
+        values.push(typeof val === 'object' ? JSON.stringify(val) : val);
+      } else {
+        updates.push(`${col} = ?`);
+        values.push(val);
+      }
+    }
+
+    if (updates.length === 0) return;
+    updates.push("updated_at = datetime('now')");
+    values.push(id);
+    this.db.prepare(`UPDATE operations SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  deleteOperation(id: string): void {
+    this.db.prepare('DELETE FROM operations WHERE id = ?').run(id);
+  }
+
+  getActiveOperation(): any {
+    return this.db.prepare(
+      "SELECT * FROM operations WHERE status IN ('deploying', 'active', 'repositioning', 'paused', 'recovering') ORDER BY updated_at DESC LIMIT 1"
+    ).get();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Principals
+  // ---------------------------------------------------------------------------
+
+  writePrincipal(p: {
+    id?: string;
+    name: string;
+    codename: string;
+    bleBeaconId?: string | null;
+    notes?: string | null;
+  }): string {
+    const id = p.id ?? generateId();
+    this.db
+      .prepare(
+        `INSERT INTO principals (id, name, codename, ble_beacon_id, notes)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name=excluded.name, codename=excluded.codename,
+           ble_beacon_id=excluded.ble_beacon_id, notes=excluded.notes,
+           updated_at=datetime('now')`,
+      )
+      .run(id, p.name, p.codename, p.bleBeaconId ?? null, p.notes ?? null);
+    return id;
+  }
+
+  getPrincipal(id: string): any {
+    return this.db.prepare('SELECT * FROM principals WHERE id = ?').get(id);
+  }
+
+  queryPrincipals(): any[] {
+    return this.db.prepare('SELECT * FROM principals ORDER BY codename').all();
+  }
+
+  updatePrincipal(id: string, patch: Record<string, unknown>): void {
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    for (const [key, val] of Object.entries(patch)) {
+      const col = key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+      updates.push(`${col} = ?`);
+      values.push(val);
+    }
+
+    if (updates.length === 0) return;
+    updates.push("updated_at = datetime('now')");
+    values.push(id);
+    this.db.prepare(`UPDATE principals SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  deletePrincipal(id: string): void {
+    this.db.prepare('DELETE FROM principals WHERE id = ?').run(id);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Protection Agents
+  // ---------------------------------------------------------------------------
+
+  writeProtectionAgent(agent: {
+    id?: string;
+    name: string;
+    callsign: string;
+    role?: string;
+    notes?: string | null;
+  }): string {
+    const id = agent.id ?? generateId();
+    this.db
+      .prepare(
+        `INSERT INTO protection_agents (id, name, callsign, role, notes)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(id) DO UPDATE SET
+           name=excluded.name, callsign=excluded.callsign,
+           role=excluded.role, notes=excluded.notes,
+           updated_at=datetime('now')`,
+      )
+      .run(id, agent.name, agent.callsign, agent.role ?? 'agent', agent.notes ?? null);
+    return id;
+  }
+
+  getProtectionAgent(id: string): any {
+    return this.db.prepare('SELECT * FROM protection_agents WHERE id = ?').get(id);
+  }
+
+  queryProtectionAgents(): any[] {
+    return this.db.prepare('SELECT * FROM protection_agents ORDER BY callsign').all();
+  }
+
+  updateProtectionAgent(id: string, patch: Record<string, unknown>): void {
+    const updates: string[] = [];
+    const values: any[] = [];
+
+    for (const [key, val] of Object.entries(patch)) {
+      const col = key.replace(/[A-Z]/g, (m) => `_${m.toLowerCase()}`);
+      updates.push(`${col} = ?`);
+      values.push(val);
+    }
+
+    if (updates.length === 0) return;
+    updates.push("updated_at = datetime('now')");
+    values.push(id);
+    this.db.prepare(`UPDATE protection_agents SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+  }
+
+  deleteProtectionAgent(id: string): void {
+    this.db.prepare('DELETE FROM protection_agents WHERE id = ?').run(id);
+  }
+
+  // ---------------------------------------------------------------------------
   // Sync helpers
   // ---------------------------------------------------------------------------
 
+  private static readonly CLOUD_ONLY_COLUMNS = new Set([
+    'customer_id', 'source_workstation_id',
+  ]);
+
+  private static readonly CLOUD_TO_LOCAL_RENAME: Record<string, Record<string, string>> = {
+    kits: { config: 'type' },
+  };
+
+  private static readonly CLOUD_DROP_COLUMNS: Record<string, Set<string>> = {
+    kits: new Set(['tier_composition', 'charger_serial', 'case_model', 'cloud_registered_at']),
+  };
+
+  private transformCloudRow(tableName: string, row: Record<string, any>): Record<string, any> {
+    const cleaned: Record<string, any> = {};
+    const renames = OverwatchDB.CLOUD_TO_LOCAL_RENAME[tableName];
+    const drops = OverwatchDB.CLOUD_DROP_COLUMNS[tableName];
+    for (const [k, v] of Object.entries(row)) {
+      if (OverwatchDB.CLOUD_ONLY_COLUMNS.has(k)) continue;
+      if (drops?.has(k)) continue;
+      const localKey = renames?.[k] ?? k;
+      cleaned[localKey] = v;
+    }
+    return cleaned;
+  }
+
   private static readonly SYNCABLE_TABLES = [
     'venues', 'venue_zones', 'zone_connections', 'perch_points',
-    'kits', 'drone_profiles', 'operations', 'principals',
+    'kits', 'drone_profiles', 'operations', 'principals', 'protection_agents',
     'wm_nodes', 'wm_edges',
   ];
 
@@ -920,7 +1231,9 @@ export class OverwatchDB {
       perch_points: 'perch_points',
       kits: 'kits',
       drones: 'drone_profiles',
+      operations: 'operations',
       principals: 'principals',
+      protection_agents: 'protection_agents',
       wm_nodes: 'wm_nodes',
       wm_edges: 'wm_edges',
     };
@@ -930,8 +1243,10 @@ export class OverwatchDB {
         const rows = data[key];
         if (!rows || rows.length === 0) continue;
 
-        for (const row of rows) {
+        for (const rawRow of rows) {
+          const row = this.transformCloudRow(tableName, rawRow);
           const cols = Object.keys(row);
+          if (cols.length === 0) continue;
           const placeholders = cols.map(() => '?').join(',');
           const onConflict = cols
             .filter((c) => c !== 'id')
@@ -959,6 +1274,7 @@ export class OverwatchDB {
       drones: 'drone_profiles',
       operations: 'operations',
       principals: 'principals',
+      protection_agents: 'protection_agents',
       wm_nodes: 'wm_nodes',
       wm_edges: 'wm_edges',
     };
@@ -966,8 +1282,9 @@ export class OverwatchDB {
     this.db.transaction(() => {
       for (const entity of entities) {
         const tableName = tableMap[entity.table] ?? entity.table;
-        const row: Record<string, any> = { id: entity.id, ...entity.data };
+        const row = this.transformCloudRow(tableName, { id: entity.id, ...entity.data });
         const cols = Object.keys(row);
+        if (cols.length === 0) continue;
         const placeholders = cols.map(() => '?').join(',');
         const onConflict = cols
           .filter((c) => c !== 'id')

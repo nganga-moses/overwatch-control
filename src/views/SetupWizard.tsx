@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Shield, Server, Key, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import { Key, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
+import controlLogo from '../assets/control-logo.png';
 
 const api = (window as any).electronAPI;
 
@@ -7,12 +8,12 @@ interface SetupWizardProps {
   onComplete: () => void;
 }
 
-const PRODUCTION_URL = 'https://api.overwatch.io/api/v1';
+const DEV_URL = 'http://localhost:8000';
+const PROD_URL = 'https://overwatch.crysoftdynamics.com';
+const isDev = import.meta.env.DEV;
 
 export default function SetupWizard({ onComplete }: SetupWizardProps) {
-  const [step, setStep] = useState<'url' | 'code' | 'activating' | 'done'>('url');
-  const [cloudUrl, setCloudUrl] = useState(PRODUCTION_URL);
-  const [useCustom, setUseCustom] = useState(false);
+  const [step, setStep] = useState<'code' | 'activating' | 'done'>('code');
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
   const [result, setResult] = useState<{ customerName: string } | null>(null);
@@ -33,7 +34,7 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
     setStep('activating');
 
     try {
-      const url = useCustom ? cloudUrl : PRODUCTION_URL;
+      const url = isDev ? DEV_URL : PROD_URL;
       const cleanCode = code.replace(/-/g, '');
       const res = await api.auth.activate(url, cleanCode);
       setResult({ customerName: res.customerName });
@@ -47,36 +48,9 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0d1117]">
       <div className="w-full max-w-md space-y-6">
-        {/* Logo */}
         <div className="text-center">
-          <Shield className="w-14 h-14 text-teal-400 mx-auto mb-3" />
-          <h1 className="text-2xl font-bold text-white">Overwatch Control</h1>
+          <img src={controlLogo} alt="Overwatch Control" className="h-20 mx-auto mb-3" />
           <p className="text-gray-400 text-sm mt-1">First-time setup</p>
-        </div>
-
-        {/* Step indicators */}
-        <div className="flex items-center justify-center gap-2">
-          {['Server', 'Activate'].map((label, i) => {
-            const active = (i === 0 && step === 'url') || (i === 1 && (step === 'code' || step === 'activating'));
-            const done = (i === 0 && step !== 'url') || (i === 1 && step === 'done');
-            return (
-              <div key={label} className="flex items-center gap-1">
-                <div
-                  className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-medium border ${
-                    done
-                      ? 'bg-teal-400/20 border-teal-400 text-teal-400'
-                      : active
-                        ? 'border-teal-400 text-teal-400'
-                        : 'border-gray-600 text-gray-500'
-                  }`}
-                >
-                  {done ? <CheckCircle className="w-4 h-4" /> : i + 1}
-                </div>
-                <span className={`text-xs ${active || done ? 'text-gray-300' : 'text-gray-600'}`}>{label}</span>
-                {i < 1 && <div className="w-8 h-px bg-gray-700 mx-1" />}
-              </div>
-            );
-          })}
         </div>
 
         <div className="bg-[#161b22] border border-[#30363d] rounded-lg p-6 space-y-5">
@@ -85,47 +59,6 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
               <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
               {error}
             </div>
-          )}
-
-          {step === 'url' && (
-            <>
-              <div className="flex items-center gap-2 text-gray-300">
-                <Server className="w-5 h-5 text-teal-400" />
-                <h2 className="font-semibold">Cloud Server</h2>
-              </div>
-
-              <label className="flex items-center gap-2 text-sm text-gray-400 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={useCustom}
-                  onChange={(e) => setUseCustom(e.target.checked)}
-                  className="rounded bg-[#1c2128] border-[#30363d] text-teal-400 focus:ring-teal-400/30"
-                />
-                Custom server URL
-              </label>
-
-              {useCustom && (
-                <input
-                  value={cloudUrl}
-                  onChange={(e) => setCloudUrl(e.target.value)}
-                  placeholder="https://your-server.com"
-                  className="w-full px-3 py-2 bg-[#1c2128] border border-[#30363d] rounded text-sm text-white placeholder:text-gray-600 focus:outline-none focus:border-teal-400"
-                />
-              )}
-
-              {!useCustom && (
-                <p className="text-xs text-gray-500">
-                  Connecting to: <span className="text-gray-400">{PRODUCTION_URL}</span>
-                </p>
-              )}
-
-              <button
-                onClick={() => setStep('code')}
-                className="w-full py-2 bg-teal-400 text-[#0d1117] font-medium rounded text-sm hover:bg-teal-300 transition"
-              >
-                Continue
-              </button>
-            </>
           )}
 
           {step === 'code' && (
@@ -146,21 +79,19 @@ export default function SetupWizard({ onComplete }: SetupWizardProps) {
                 className="w-full px-4 py-3 bg-[#1c2128] border border-[#30363d] rounded text-center text-xl font-mono tracking-[0.3em] text-white placeholder:text-gray-600 focus:outline-none focus:border-teal-400"
               />
 
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setStep('url')}
-                  className="px-4 py-2 text-sm text-gray-400 hover:text-white transition"
-                >
-                  Back
-                </button>
-                <button
-                  onClick={handleActivate}
-                  disabled={code.replace(/-/g, '').length !== 8}
-                  className="flex-1 py-2 bg-teal-400 text-[#0d1117] font-medium rounded text-sm hover:bg-teal-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
-                >
-                  Activate
-                </button>
-              </div>
+              <button
+                onClick={handleActivate}
+                disabled={code.replace(/-/g, '').length !== 8}
+                className="w-full py-2 bg-teal-400 text-[#0d1117] font-medium rounded text-sm hover:bg-teal-300 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Activate
+              </button>
+
+              {isDev && (
+                <p className="text-[10px] text-gray-600 text-center">
+                  DEV — {DEV_URL}
+                </p>
+              )}
             </>
           )}
 

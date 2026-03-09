@@ -33,7 +33,7 @@ export function PerchStateIcon({
   size = 14,
   showLabel = false,
 }: PerchStateIconProps) {
-  const config = STATE_CONFIG[state];
+  const config = STATE_CONFIG[state] ?? STATE_CONFIG.sleeping;
   const Icon = config.icon;
 
   return (

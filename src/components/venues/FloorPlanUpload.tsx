@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import {
   Upload, Loader2, CheckCircle2, XCircle,
   FileText, Layers, FileInput,
@@ -25,26 +25,17 @@ export function FloorPlanUpload({ venueId, onComplete, onCancel }: FloorPlanUplo
     perchPointCount?: number;
     pagesProcessed?: number;
   } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   const [pageMode, setPageMode] = useState<PageMode>('all');
   const [selectedPage, setSelectedPage] = useState(1);
   const [floorLevel, setFloorLevel] = useState(0);
   const [pageCount, setPageCount] = useState<number | null>(null);
   const [detectingPages, setDetectingPages] = useState(false);
 
-  function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  async function handlePickFile() {
+    const fp: string | null = await window.electronAPI.venues.pickFloorPlanFile();
+    if (!fp) return;
 
-    const fp = (file as any).path;
-    if (!fp) {
-      setError('Could not get file path. Try again.');
-      setStage('error');
-      return;
-    }
-
-    const name = file.name;
+    const name = fp.split('/').pop() ?? fp;
     const ext = name.split('.').pop()?.toLowerCase() ?? '';
     setFileName(name);
     setFilePath(fp);
@@ -106,7 +97,8 @@ export function FloorPlanUpload({ venueId, onComplete, onCancel }: FloorPlanUplo
         await pollForCompletion(venueId, uploadResult.jobId);
       }
     } catch (err: any) {
-      setError(err.message ?? 'Upload failed');
+      console.error('[FloorPlanUpload] Upload failed:', err);
+      setError(err.message || String(err) || 'Upload failed');
       setStage('error');
     }
   }
@@ -166,15 +158,8 @@ export function FloorPlanUpload({ venueId, onComplete, onCancel }: FloorPlanUplo
       {/* File selection */}
       {stage === 'select' && (
         <div className="text-center py-4">
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".dxf,.pdf,.png,.jpg,.jpeg"
-            onChange={handleFileSelect}
-            className="hidden"
-          />
           <button
-            onClick={() => fileInputRef.current?.click()}
+            onClick={handlePickFile}
             className="inline-flex items-center gap-2 px-4 py-2 rounded bg-ow-surface border border-ow-border text-xs text-ow-text hover:border-ow-accent/50 transition-colors"
           >
             <Upload size={14} />

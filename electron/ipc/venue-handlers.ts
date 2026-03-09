@@ -1,7 +1,20 @@
-import { ipcMain } from 'electron';
+import { ipcMain, dialog, BrowserWindow } from 'electron';
 import type { VenueManager } from '../services/venue-manager';
 
 export function registerVenueHandlers(vm: VenueManager): void {
+  ipcMain.handle('venue:pickFloorPlanFile', async () => {
+    const win = BrowserWindow.getFocusedWindow();
+    const result = await dialog.showOpenDialog(win!, {
+      title: 'Select Floor Plan',
+      filters: [
+        { name: 'Floor Plans', extensions: ['dxf', 'pdf', 'png', 'jpg', 'jpeg'] },
+      ],
+      properties: ['openFile'],
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
   // Cloud-first venue CRUD
   ipcMain.handle('venue:create', (_e, data) => vm.createVenue(data));
   ipcMain.handle('venue:get', (_e, id: string) => vm.getVenue(id));
@@ -28,14 +41,28 @@ export function registerVenueHandlers(vm: VenueManager): void {
   ipcMain.handle('venue:getPerchPoints', (_e, zoneId: string) =>
     vm.getPerchPoints(zoneId),
   );
+  ipcMain.handle('venue:updatePerchPoint', (_e, id: string, patch) =>
+    vm.updatePerchPoint(id, patch),
+  );
   ipcMain.handle('venue:deletePerchPoint', (_e, id: string) =>
     vm.deletePerchPoint(id),
   );
 
   // Floor plan (cloud)
-  ipcMain.handle('venue:uploadFloorPlan', (_e, venueId: string, filePath: string, options?: { floorLevel?: number; pageNumber?: number }) =>
-    vm.uploadFloorPlan(venueId, filePath, options),
+  ipcMain.handle('venue:deleteFloorPlan', async (_e, venueId: string) =>
+    vm.deleteFloorPlan(venueId),
   );
+  ipcMain.handle('venue:uploadFloorPlan', async (_e, venueId: string, filePath: string, options?: { floorLevel?: number; pageNumber?: number }) => {
+    console.info('[IPC] venue:uploadFloorPlan called:', { venueId, filePath, options });
+    try {
+      const result = await vm.uploadFloorPlan(venueId, filePath, options);
+      console.info('[IPC] venue:uploadFloorPlan success:', result);
+      return result;
+    } catch (err) {
+      console.error('[IPC] venue:uploadFloorPlan error:', err);
+      throw err;
+    }
+  });
   ipcMain.handle('venue:getPageCount', (_e, venueId: string, blobKey: string) =>
     vm.getPageCount(venueId, blobKey),
   );
@@ -53,6 +80,12 @@ export function registerVenueHandlers(vm: VenueManager): void {
   );
   ipcMain.handle('venue:getFloorPlanPath', (_e, venueId: string) =>
     vm.getFloorPlanPath(venueId),
+  );
+  ipcMain.handle('venue:getFloorPlanDataUrl', (_e, venueId: string, floorLevel?: number) =>
+    vm.getFloorPlanDataUrl(venueId, floorLevel),
+  );
+  ipcMain.handle('venue:getFloorImageLevels', (_e, venueId: string) =>
+    vm.getFloorImageLevels(venueId),
   );
   ipcMain.handle('venue:fetchIntelligence', (_e, venueId: string) =>
     vm.fetchVenueIntelligence(venueId),

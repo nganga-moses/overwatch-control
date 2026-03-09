@@ -1,6 +1,6 @@
 import type { VenueZone } from '@/shared/types';
 
-const ZONE_COLORS: Record<string, string> = {
+export const ZONE_COLORS: Record<string, string> = {
   lobby: '#58a6ff',
   corridor: '#6e7681',
   room: '#a78bfa',

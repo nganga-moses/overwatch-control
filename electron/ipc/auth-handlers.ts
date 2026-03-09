@@ -9,10 +9,16 @@ export function registerAuthHandlers(
   ipcMain.handle('auth:isActivated', () => activationService.isActivated());
 
   ipcMain.handle('auth:activate', async (_e, cloudUrl: string, code: string) => {
-    return activationService.activate(cloudUrl, code);
+    const result = await activationService.activate(cloudUrl, code);
+    ipcMain.emit('activation:complete');
+    return result;
   });
 
   ipcMain.handle('auth:getOperators', () => activationService.getOperators());
+
+  ipcMain.handle('auth:findOperator', (_e, name: string) => {
+    return activationService.findOperatorByName(name);
+  });
 
   ipcMain.handle('auth:getChallengePositions', (_e, excludePositions?: number[]) => {
     return activationService.generateChallengePositions(excludePositions);

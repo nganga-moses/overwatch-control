@@ -141,6 +141,10 @@ export class VenueManager {
     return this.db.getPerchPoints(zoneId);
   }
 
+  updatePerchPoint(id: string, patch: Record<string, unknown>) {
+    this.db.updatePerchPoint(id, patch);
+  }
+
   deletePerchPoint(id: string) {
     this.db.deletePerchPoint(id);
   }
@@ -169,19 +173,50 @@ export class VenueManager {
     const blobKey = `venues/${venueId}/floorplan.${ext}`;
     const contentType = this.mimeType(ext);
 
+    console.info('[VenueManager] uploadFloorPlan: requesting upload URL for', blobKey);
+
     const urlResp = await this.api.apiFetchPublic(
       `/api/v1/blobs/upload-url?key=${encodeURIComponent(blobKey)}&content_type=${encodeURIComponent(contentType)}`,
     );
-    if (!urlResp.ok) throw new Error(`Failed to get upload URL: ${urlResp.status}`);
+    if (!urlResp.ok) {
+      const detail = await urlResp.text();
+      console.error('[VenueManager] Failed to get upload URL:', urlResp.status, detail);
+      throw new Error(`Failed to get upload URL: ${urlResp.status} ${detail}`);
+    }
     const { url, key } = await urlResp.json();
+    console.info('[VenueManager] Got upload URL, direct:', url.startsWith('__direct__:'));
 
     const fileBuffer = fs.readFileSync(localFilePath);
-    const uploadResp = await fetch(url, {
-      method: 'PUT',
-      headers: { 'Content-Type': contentType },
-      body: fileBuffer,
-    });
-    if (!uploadResp.ok) throw new Error(`Failed to upload file: ${uploadResp.status}`);
+
+    if (url.startsWith('__direct__:')) {
+      const boundary = `----OverwatchUpload${Date.now()}`;
+      const fileName = path.basename(localFilePath);
+      const header = Buffer.from(
+        `--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${fileName}"\r\nContent-Type: ${contentType}\r\n\r\n`,
+      );
+      const footer = Buffer.from(`\r\n--${boundary}--\r\n`);
+      const multipartBody = Buffer.concat([header, fileBuffer, footer]);
+
+      const directResp = await this.api.apiFetchPublic(
+        `/api/v1/blobs/upload?key=${encodeURIComponent(blobKey)}`,
+        {
+          method: 'POST',
+          body: multipartBody,
+          headers: { 'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        },
+      );
+      if (!directResp.ok) {
+        const detail = await directResp.text();
+        throw new Error(`Direct upload failed: ${directResp.status} ${detail}`);
+      }
+    } else {
+      const uploadResp = await fetch(url, {
+        method: 'PUT',
+        headers: { 'Content-Type': contentType },
+        body: fileBuffer,
+      });
+      if (!uploadResp.ok) throw new Error(`Failed to upload file: ${uploadResp.status}`);
+    }
 
     const fmt = ['dxf', 'dwg'].includes(ext) ? 'dxf' : ext === 'pdf' ? 'pdf' : 'image';
 
@@ -202,11 +237,20 @@ export class VenueManager {
 
     const result = await ingestResp.json();
 
+    const effectiveBlobKey = result.rendered_blob_key || key;
+
     this.db.updateVenueFloorPlan(venueId, {
-      floorPlanBlobKey: key,
+      floorPlanBlobKey: effectiveBlobKey,
       floorPlanCached: 0,
       floorPlanLocalPath: null,
     });
+
+    if (result.floor_image_keys && typeof result.floor_image_keys === 'object') {
+      this.db.deleteFloorPlanImages(venueId);
+      for (const [floor, fKey] of Object.entries(result.floor_image_keys)) {
+        this.db.upsertFloorPlanImage(venueId, parseInt(floor, 10), fKey as string);
+      }
+    }
 
     return {
       jobId: result.job_id,
@@ -214,7 +258,7 @@ export class VenueManager {
       zoneCount: result.zone_count,
       perchPointCount: result.perch_point_count,
       pagesProcessed: result.pages_processed,
-      blobKey: key,
+      blobKey: effectiveBlobKey,
     };
   }
 
@@ -255,46 +299,104 @@ export class VenueManager {
     const blobKey = (venue as any).floor_plan_blob_key;
     if (!blobKey) throw new Error('No floor plan uploaded for this venue');
 
+    const cacheDir = path.join(app.getPath('userData'), 'floor-plans', venueId);
+    fs.mkdirSync(cacheDir, { recursive: true });
+
+    const primaryPath = await this.downloadBlob(blobKey, path.join(cacheDir, 'floorplan.png'));
+
+    this.db.updateVenueFloorPlan(venueId, {
+      floorPlanLocalPath: primaryPath,
+      floorPlanCached: 1,
+      floorPlanCachedAt: new Date().toISOString(),
+    });
+
+    const floorImages = this.db.getFloorPlanImages(venueId);
+    for (const fi of floorImages) {
+      const floorPath = path.join(cacheDir, `floor_${fi.floor_level}.png`);
+      try {
+        await this.downloadBlob(fi.blob_key, floorPath);
+        this.db.updateFloorPlanImage(venueId, fi.floor_level, {
+          localPath: floorPath,
+          cached: 1,
+          cachedAt: new Date().toISOString(),
+        });
+      } catch (err) {
+        console.warn(`[VenueManager] Failed to pull floor ${fi.floor_level} image:`, err);
+      }
+    }
+
+    return primaryPath;
+  }
+
+  private async downloadBlob(blobKey: string, destPath: string): Promise<string> {
     const urlResp = await this.api.apiFetchPublic(
       `/api/v1/blobs/download-url?key=${encodeURIComponent(blobKey)}`,
     );
     if (!urlResp.ok) throw new Error(`Failed to get download URL: ${urlResp.status}`);
     const { url } = await urlResp.json();
 
-    const cacheDir = path.join(app.getPath('userData'), 'floor-plans', venueId);
-    fs.mkdirSync(cacheDir, { recursive: true });
-
-    const ext = path.extname(blobKey) || '.pdf';
-    const localPath = path.join(cacheDir, `floorplan${ext}`);
-
-    const downloadResp = await fetch(url);
-    if (!downloadResp.ok) throw new Error(`Failed to download floor plan: ${downloadResp.status}`);
+    let downloadResp: Response;
+    if (url.startsWith('__direct__:')) {
+      downloadResp = await this.api.apiFetchPublic(
+        `/api/v1/blobs/download?key=${encodeURIComponent(blobKey)}`,
+      );
+    } else {
+      downloadResp = await fetch(url);
+    }
+    if (!downloadResp.ok) throw new Error(`Failed to download blob: ${downloadResp.status}`);
     const buffer = Buffer.from(await downloadResp.arrayBuffer());
-    fs.writeFileSync(localPath, buffer);
+    fs.writeFileSync(destPath, buffer);
+    return destPath;
+  }
+
+  async deleteFloorPlan(venueId: string): Promise<void> {
+    const resp = await this.api.apiFetchPublic(`/api/v1/venues/${venueId}/floor-plan`, {
+      method: 'DELETE',
+    });
+    if (!resp.ok && resp.status !== 404) {
+      throw new Error(`Failed to delete floor plan: ${resp.status}`);
+    }
+
+    this.evictFloorPlan(venueId);
+    this.db.deleteFloorPlanImages(venueId);
 
     this.db.updateVenueFloorPlan(venueId, {
-      floorPlanLocalPath: localPath,
-      floorPlanCached: 1,
-      floorPlanCachedAt: new Date().toISOString(),
+      floorPlanBlobKey: null,
+      floorPlanLocalPath: null,
+      floorPlanCached: 0,
+      floorPlanCachedAt: null,
     });
 
-    return localPath;
+    const zones = this.db.getZones(venueId);
+    for (const zone of zones) {
+      this.db.deleteZone(zone.id);
+    }
   }
 
   evictFloorPlan(venueId: string): void {
-    const venue = this.db.getVenue(venueId) as any;
-    if (venue?.floor_plan_local_path) {
-      try {
-        fs.unlinkSync(venue.floor_plan_local_path);
-      } catch {
-        // File may already be gone
+    const cacheDir = path.join(app.getPath('userData'), 'floor-plans', venueId);
+    try {
+      if (fs.existsSync(cacheDir)) {
+        fs.rmSync(cacheDir, { recursive: true, force: true });
       }
+    } catch {
+      // best-effort cleanup
     }
+
     this.db.updateVenueFloorPlan(venueId, {
       floorPlanLocalPath: null,
       floorPlanCached: 0,
       floorPlanCachedAt: null,
     });
+
+    const floorImages = this.db.getFloorPlanImages(venueId);
+    for (const fi of floorImages) {
+      this.db.updateFloorPlanImage(venueId, fi.floor_level, {
+        localPath: null,
+        cached: 0,
+        cachedAt: null,
+      });
+    }
   }
 
   isFloorPlanCached(venueId: string): boolean {
@@ -309,6 +411,31 @@ export class VenueManager {
     if (!venue?.floor_plan_local_path) return null;
     if (!fs.existsSync(venue.floor_plan_local_path)) return null;
     return venue.floor_plan_local_path;
+  }
+
+  getFloorPlanDataUrl(venueId: string, floorLevel?: number): string | null {
+    if (floorLevel !== undefined) {
+      const fi = this.db.getFloorPlanImage(venueId, floorLevel);
+      if (fi?.local_path && fs.existsSync(fi.local_path)) {
+        return this.fileToDataUrl(fi.local_path);
+      }
+    }
+
+    const localPath = this.getFloorPlanPath(venueId);
+    if (!localPath) return null;
+    return this.fileToDataUrl(localPath);
+  }
+
+  getFloorImageLevels(venueId: string): number[] {
+    const images = this.db.getFloorPlanImages(venueId);
+    return images.filter((fi: any) => fi.cached && fi.local_path).map((fi: any) => fi.floor_level);
+  }
+
+  private fileToDataUrl(filePath: string): string {
+    const ext = path.extname(filePath).toLowerCase();
+    const mime = ext === '.png' ? 'image/png' : ext === '.jpg' || ext === '.jpeg' ? 'image/jpeg' : 'image/png';
+    const data = fs.readFileSync(filePath);
+    return `data:${mime};base64,${data.toString('base64')}`;
   }
 
   // ---------------------------------------------------------------------------

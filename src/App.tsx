@@ -72,9 +72,14 @@ export default function App({ mode, onModeChange, isElectron }: AppProps) {
     );
   }
 
+  const handleLogout = () => {
+    setActiveOperator(null);
+    setScreen('login');
+  };
+
   return (
     <div className="h-full">
-      <TacticalView mode={mode} onModeChange={onModeChange} />
+      <TacticalView mode={mode} onModeChange={onModeChange} onLogout={handleLogout} />
     </div>
   );
 }

@@ -80,6 +80,12 @@ export class ActivationService {
     return this.db.getActiveOperators();
   }
 
+  findOperatorByName(name: string): { id: string; name: string; role: string } | null {
+    const op = this.db.getOperatorByName(name);
+    if (!op) return null;
+    return { id: op.id, name: op.name, role: op.role };
+  }
+
   validatePin(operatorId: string, positions: number[], digits: string[]): boolean {
     const op = this.db.getOperator(operatorId);
     if (!op || !op.is_active) return false;
