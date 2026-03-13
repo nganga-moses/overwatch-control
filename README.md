@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="src/assets/control-logo.png" alt="Overwatch Control Logo" width="200" />
+</p>
+
 # Overwatch Control
 
 Command workstation application for the Overwatch autonomous perching drone mesh system. Built with Electron, React, and TypeScript.
